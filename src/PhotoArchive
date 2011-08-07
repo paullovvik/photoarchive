@@ -1,0 +1,320 @@
+#!/usr/bin/php
+<?php
+
+class PhotoArchive {
+
+  public function help() {
+    $help = <<<EOT
+PhotoArchive
+Usage:  PhotoArchive COMMAND [OPTION...]
+
+Commands:
+  archive - Archives the set of images from the picture_directory identified in the configuration file to the originals_directory.  Information will be added to the originals database for all images that are archived.
+
+  archive-info - Prints information about the specified photos within the orgininals archive.
+
+  help - Prints a help message
+
+  info - Prints information about the specified photos within the photo database.
+
+  list - Prints information about the specified photos within the photo database.
+
+  tags - Prints tag information about the specified photos.
+
+OPTIONS:
+
+  -v - Turn on verbose mode
+
+  -r - Specify the rank of the photos that you are interested in.  For example, -r 3 will select all photos with a rank of 3.  Also, '-r ">=3"' will select all photos with a rank of 3 or more.
+
+  -t - Specify a tag of interest.  This will narrow the list of pictures to only those that have the specified tag.
+
+  --from - Specify a from date.  Of the form yyyy/mm/dd.
+
+  --to - Specify a to date.  Of the form yyyy/mm/dd.  With --from and --to you can identify the range of pictures you are interested in.
+
+  --use-original-db - Use the original db rather than the photo db.
+
+EOT;
+    print("${help}\n");
+  }
+
+  private function includes() {
+    global $app_dir;
+    include_once("$app_dir/Config.php");
+    include_once("$app_dir/PhotoDB.php");
+    include_once("$app_dir/ArchiveDB.php");
+  }
+
+  public function printPhotoInfo($photo, $config, $db) {
+    if (isset($photo->id)) {
+      $out[] = "ID: " . $photo->id;
+    }
+    else if (isset($photo->pid)) {
+      $out[] = "ID: " . $photo->pid;
+    }
+    $out[] = "Filename: " . $photo->filename;
+    $out[] = "Rating: " . $photo->rating;
+    $out[] = "Dimensions: " . $photo->width . 'x' . $photo->height;
+    $out[] = "MD5: " . $photo->md5;
+    if (isset($photo->id)) {
+      $tags = $db->getTags($photo->id);
+    }
+    else if (isset($photo->pid)) {
+      $tags = $db->getTags($photo->pid);
+    }
+    if (count($tags) > 0) {
+      $out[] = "Tags: " . implode(', ', $tags);
+    }
+    print(implode("\n", $out) . "\n");
+  }
+
+  /**
+   * Causes the specfied photo to be archived.
+   */
+  private function archiveOriginalPhoto($config, $photo, $photoDB, $archiveDB) {
+    $archivedPhoto = new StdClass();
+    $escapedPath = preg_replace('/\//', '\\\/', $config->pictureDirectory);
+    $partialPath = preg_replace('/^' . $escapedPath . '/', '', $photo->filename);;
+    $archivedPhoto->filename = $partialPath;
+    $filename = $config->originalsDirectory . $partialPath;
+
+    // Create the directory if needed...
+    $dir = dirname($filename);
+    if (!file_exists($dir)) {
+      mkdir($dir, 0755, TRUE);
+    }
+
+    // Copy the file, preserving the timestamp, etc.
+    print("Copying " . $photo->filename . " to $filename\n");
+    $copy = 'cp -p ' . escapeshellarg($photo->filename) . ' ' . escapeshellarg($filename);
+    $output = array();
+    exec($copy, $output, $result);
+    if ($result !== 0) {
+      // Something bad happened.
+      throw new Exception("Failed to copy file " . $photo->filename . " to ${filename}.  " . implode('; ', $output));
+    }
+
+    $archivedPhoto->md5 = $photo->md5;
+    $archivedPhoto->width = $photo->width;
+    $archivedPhoto->height = $photo->height;
+    $archivedPhoto->exposure_time = $photo->exposure_time;
+    $archivedPhoto->rating = $photo->rating;
+
+    // Get the photo tags...
+    $tags = $photoDB->getTags($photo->id);
+    $archivedPhoto->tags = $tags;
+    $archiveDB->updatePhoto($archivedPhoto);
+  }
+
+  public function parseArgs() {
+    global $argv, $argc;
+    // Make sure there is a command.
+    if ($argc <= 1) {
+      $this->help();
+      return;
+    }
+    $major_command = $argv[1];
+
+    // Parse all flags
+    $config = new Config();
+    $args = new StdClass();
+    $done = FALSE;
+    $extraArgs = array();
+    for ($i = 2; $i < $argc && !$done; $i++) {
+      switch ($argv[$i]) {
+        case '-v':
+          $config->setVerbose();
+          break;
+
+        case '-y':
+          $args->year = $argv[++$i];
+          break;
+
+        case '-m':
+          $args->month = $argv[++$i];
+          break;
+
+        case '-d':
+          $args->day = $argv[++$i];
+          break;
+
+        case '-r':
+        case '--rate':
+          $args->rating = $argv[++$i];
+          break;
+
+        case '-t':
+        case '--tag':
+          $args->tag = $argv[++$i];
+          break;
+
+        case '--from':
+          // format: yyyy/mm/dd
+          $args->from = $argv[++$i];
+          break;
+
+        case '--to':
+          // format: yyyy/mm/dd
+          $args->to = $argv[++$i];
+          break;
+
+        case '--use-original-db':
+	  $args->db = 'original';
+	  break;
+
+        default:
+          while ($i < $argc) {
+            $extraArgs[] = $argv[$i++];
+          }
+          $done = TRUE;
+      }
+    }
+
+    $conf = $config->getConfiguration();
+    // Now we have $config and $extraArgs...
+    switch ($major_command) {
+      case 'info':
+        $this->info($conf, $args, $extraArgs);
+        break;
+
+      case 'archive-info':
+        $this->archiveInfo($conf, $args, $extraArgs);
+        break;
+
+      case 'tags':
+        $this->tags($conf, $args, $extraArgs);
+        break;
+
+      case 'list':
+        $this->listPhotos($conf, $args, $extraArgs);
+        break;
+
+      case 'archive':
+        $this->archive($conf, $args, $extraArgs);
+        break;
+
+      default:
+        $this->help();
+    }
+  }
+
+  public function info($config, $args, $extraArgs) {
+    $photoDB = new PhotoDB($config);
+    for ($i = 0, $len = count($extraArgs); $i < $len; $i++) {
+      $photoId = $extraArgs[$i];
+      $tags = $photoDB->getTags($photoId);
+      print("${photoId}: " . implode(', ', $tags) . "\n");
+    }
+    $photoDB->close();
+  }
+
+  /**
+   * Prints info about specific photos in the original archive.
+   */
+  public function archiveInfo($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    for ($i = 0, $len = count($extraArgs); $i < $len; $i++) {
+      $photoId = $extraArgs[$i];
+      $photo = $archiveDB->loadPhoto($config, $photoId);
+      print("Photo ${photoId}: ");
+      print_r($photo);
+      print("\n");
+    }
+    $archiveDB->close();
+  }
+
+  public function listPhotos($config, $args, $extraArgs) {
+    if ($args->db == 'original') {
+      $db = new ArchiveDB($config);
+    }
+    else {
+      $db = new PhotoDB($config);
+    }
+    $photos = $db->getPhotos($args);
+    $count = 0;
+    while ($photo = $photos->fetchObject()) {
+      $this->printPhotoInfo($photo, $config, $db);
+      $count++;
+    }
+    print("${count} photos.\n");
+    $db->close();
+  }
+
+  public function tags($config, $args, $extraArgs) {
+    $photoDB = new PhotoDB($config);
+    $tags = $photoDB->getAllTags();
+    print(implode("\n", $tags) . "\n");
+    $photoDB->close();
+  }
+
+  public function archive($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    $photoDB = new PhotoDB($config);
+    $photos = $photoDB->getPhotos($args);
+    $count = 0;
+    while ($photo = $photos->fetchObject()) {
+      $this->archiveOriginalPhoto($config, $photo, $photoDB, $archiveDB);
+      $count++;
+    }
+    print("${count} photos matched your query.\n");
+    $photoDB->close();
+  }
+
+  public function main() {
+    // Figure out where the application lives.
+    global $argv, $argc, $app_dir;
+    $app_dir = dirname($argv[0]);
+
+    $this->includes();
+    $this->parseArgs();
+    return;
+    $pa = new PhotoArchive();
+    $pa->includes();
+    $c = new Config();
+    $options = getopt('p:vr:t:'/*, array('rate:', 'tag:')*/);
+    if (isset($options['v'])) {
+      $c->setVerbose();
+    }
+    $config = $c->getConfiguration();;
+
+    if (isset($options['p'])) {
+      $photoId = $options['p'];
+      $photoDB = new PhotoDB($config);
+      $tags = $photoDB->getTags($photoId);
+      print(implode(', ', $tags) . "\n");
+      $photoDB->close();
+      die();
+    }
+    $photoDB = new PhotoDB($config);
+    $rate = empty($options['r']) ? NULL : $options['r'];
+    $results = $photoDB->find($rate);
+    $count = 0;
+    /*
+    foreach ($results as $row) {
+      foreach ($row as $key => $val) {
+	if (!is_numeric($key)) {
+	  print "$key: $val\n";
+	}
+      }
+      $count++;
+    }
+    */
+    while ($photo = $results->fetchObject()) {
+      /*      foreach ($result as $key => $val) {
+	if (!is_numeric($key)) {
+	  print "$key: $val\n";
+	}
+      }
+      */
+      $pa->archiveOriginalPhoto($config, $photo, $photoDB);
+      $count++;
+    }
+    print("${count} photos matched your query.\n");
+    $photoDB->close();
+  }
+}
+
+$pa = new PhotoArchive();
+$pa->main();
+
