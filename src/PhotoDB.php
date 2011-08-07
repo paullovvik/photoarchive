@@ -57,7 +57,6 @@ class PhotoDB {
     // Do not sanitize the where clause; the individual elements have
     // already been sanitized.
     $query = sprintf("SELECT * FROM PhotoTable %s", $whereClause);
-    print("QUERY: ${query}\n");
     $result = $this->db->query($query);
     return $result;
   }

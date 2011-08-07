@@ -20,7 +20,7 @@ class ArchiveDB {
 
   private function createTables() {
     $photoTable = <<<EOT
-CREATE TABLE Photo (pid INTEGER PRIMARY KEY, filename TEXT UNIQUE NOT NULL, width INTEGER, height INTEGER, md5 TEXT, exposure_time INTEGER, rating INTEGER DEFAULT 0);
+CREATE TABLE Photo (pid INTEGER PRIMARY KEY, filename TEXT UNIQUE NOT NULL, jpeg_filename TEXT UNIQUE, web_filename TEXT UNIQUE, width INTEGER, height INTEGER, md5 TEXT, exposure_time INTEGER, rating INTEGER DEFAULT 0);
 EOT;
     $tagTable = <<<EOT
 CREATE TABLE Tag (tid INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);
@@ -68,7 +68,6 @@ EOT;
     // Do not sanitize the where clause; the individual elements have
     // already been sanitized.
     $query = sprintf("SELECT * FROM Photo %s", $whereClause);
-    print("QUERY: ${query}\n");
     $result = $this->db->query($query);
     return $result;
   }
@@ -85,7 +84,6 @@ EOT;
       // Need a new row.
       $insert = sprintf("INSERT INTO Photo (filename, width, height, md5, exposure_time, rating) VALUES (%s, %s, %s, %s, %s, %s)",
         $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating));
-      print("Inserting: ${insert}\n");
       $this->db->exec($insert);
     }
     $queryString = sprintf("SELECT pid FROM Photo WHERE filename = %s", $this->db->quote($photo->filename));
@@ -93,8 +91,7 @@ EOT;
     if ($query && $data = $query->fetchObject()) {
       $photo->pid = $data->pid;
     }
-    $this->createTags($photo->tags);
-    $this->addPhotoTags($photo);
+    $this->savePhotoTags($photo);
   }
 
   public function createTags($tags) {
