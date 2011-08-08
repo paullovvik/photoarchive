@@ -1,0 +1,19 @@
+Need a workflow for editing the full size jpeg...
+
+Something like
+
+PhotoArchive edit <list>
+
+Where list can be described as --from --to with rating or a series of photo numbers (ids or image numbers?)
+Opens the original photo in either gimp or ufraw depending on type.  Configures to automatically save in the originals directory, then updates the photo with tags and rating, creates the web version also.
+
+PhotoArchive add-tag <list> newtag
+Adds the specified tag to the list of photos
+
+PhotoArchive remove-tag <list> oldtag
+
+PhotoArchive set-rating <list> rating
+
+All of these update the original only if it is a JPEG, they update the full size JPEG and the web size jpeg as well as the database.
+
+
