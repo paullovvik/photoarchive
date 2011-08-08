@@ -79,23 +79,6 @@ EOT;
     $archivedPhoto->filename = $partialPath;
     $filename = $config->originalsDirectory . $partialPath;
 
-    // Create the directory if needed...
-    $dir = dirname($filename);
-    if (!file_exists($dir)) {
-      mkdir($dir, 0755, TRUE);
-    }
-
-    // Copy the file, preserving the timestamp, etc.
-    print("Copying " . $photo->filename . " to $filename\n");
-    $copy = 'cp -p ' . escapeshellarg($photo->filename) . ' ' . escapeshellarg($filename);
-    $output = array();
-    exec($copy, $output, $result);
-    if ($result !== 0) {
-      // Something bad happened.
-      throw new Exception("Failed to copy file " . $photo->filename . " to ${filename}.  " . implode('; ', $output));
-    }
-
-    $archivedPhoto->md5 = $photo->md5;
     $archivedPhoto->width = $photo->width;
     $archivedPhoto->height = $photo->height;
     $archivedPhoto->exposure_time = $photo->exposure_time;
@@ -104,7 +87,138 @@ EOT;
     // Get the photo tags...
     $tags = $photoDB->getTags($photo->id);
     $archivedPhoto->tags = $tags;
+
+    // Create the directory if needed...
+    $dir = dirname($filename);
+    if (!file_exists($dir)) {
+      mkdir($dir, 0755, TRUE);
+    }
+
+    if (!copy($photo->filename, $filename)) {
+      throw new Exception("Failed to copy " . $photo->filename . " to ${filename}");
+    }
+    $info = pathinfo($photo->filename);
+    $ext = strtoupper($info['extension']);
+    if ($ext == 'JPG') {
+      $this->setPhotoRating($filename, $archivedPhoto->rating);
+      $this->setPhotoTags($filename, $tags);
+    }
+    $this->setPhotoTimestamp($filename);
+    $archivedPhoto->md5 = md5_file($filename);
+
+    $this->createJPEG($config, $archivedPhoto, $archiveDB);
     $archiveDB->updatePhoto($archivedPhoto);
+  }
+
+  private function createJPEG($config, &$photo, $db) {
+    $original = $config->originalsDirectory . $photo->filename;
+    $parts = pathinfo($photo->filename);
+    $jpeg_filename = $parts['dirname'] . '/' . $parts['filename'] . '.JPG';
+    $jpeg = $config->jpegsDirectory . $jpeg_filename;
+
+    // Create the directory if needed...
+    $dir = dirname($jpeg);
+    if (!file_exists($dir)) {
+      mkdir($dir, 0755, TRUE);
+    }
+    $type = $this->getPhotoType($original);
+    switch ($type) {
+    case 'JPG':
+      // No conversion needed.
+      if (!copy ($original, $jpeg)) {
+	throw new Exception("Failed to copy ${original} to ${jpeg}.");
+      }
+      break;
+
+    case 'NEF':
+      print("converting " . $original . " to ${jpeg}\n");
+      $command = sprintf('ufraw-batch --compression=99 --wb=auto --exposure=auto --base-curve=camera --overwrite --out-type=jpeg --output=%s %s',
+        escapeshellarg($jpeg), escapeshellarg($original));
+      $output = array();
+      exec($command, $output, $result);
+      if ($result !== 0) {
+	// Something bad happened.
+	throw new Exception("Failed to convert file ${original} to ${jpeg}.  " . implode('; ', $output));
+      }
+      break;
+
+    default:
+      throw new Exception("Unexpected file type: ${type}.");
+    }
+    $this->setPhotoRating($jpeg, $photo->rating);
+    $this->setPhotoTags($jpeg, $photo->tags);
+    $this->setPhotoTimestamp($jpeg);
+    $photo->jpeg_filename = $jpeg_filename;
+    $photo->jpeg_md5 = md5_file($jpeg);
+  }
+
+  private function getPhotoType($filename) {
+    $info = pathinfo($filename);
+    $ext = strtoupper($info['extension']);
+    return $ext;
+  }
+
+  private function copyPhoto($from, $to) {
+    // Copy the file, preserving the timestamp, etc.
+    print("Copying " . $from . " to $to\n");
+    $copy = 'cp -p ' . escapeshellarg($from) . ' ' . escapeshellarg($to);
+    $output = array();
+    exec($copy, $output, $result);
+    if ($result !== 0) {
+      // Something bad happened.
+      throw new Exception("Failed to copy file " . $from . " to ${to}.  " . implode('; ', $output));
+    }
+  }
+
+  private function setPhotoRating($filename, $rating) {
+    // Invoke exiv2 to set the rating.
+    print("Setting the rating of ${filename} to ${rating}.\n");
+    if ($rating < 0 || $rating > 5) {
+      // This is not a legal rating.
+      throw new Exception("Rating must be between 0 and 5, inclusive.  Instead it was ${rating} for file ${filename}.");
+    }
+    $command = sprintf('exiv2 -M"add Xmp.xmp.Rating %s" %s',
+      $rating, escapeshellarg($filename));
+    print("Command: '${command}'\n");
+    $output = array();
+    exec($command, $output, $result);
+    if ($result !== 0) {
+      // Something bad happened.
+      throw new Exception("Failed to set the rating of file ${filename} to ${rating}.  " . implode('; ', $output));
+    }
+  }
+
+  private function setPhotoTags($filename, $tags) {
+    if (empty($tags)) {
+      return;
+    }
+    $tagString = implode(',', $tags);
+    // Invoke exiv2 to set the tags.
+    print("Setting the tags of ${filename} to ${tagString}.\n");
+    if (strlen($tagString) > 64) {
+      throw new Exception("The tags cannot exceed 64 characters for image ${filename} (tags are '${tagString}'.");
+    }
+    $command = sprintf('exiv2 -M"add Iptc.Application2.Keywords %s" %s',
+      $tagString, escapeshellarg($filename));
+    $output = array();
+    exec($command, $output, $result);
+    if ($result !== 0) {
+      // Something bad happened.
+      throw new Exception("Failed to set the tags of file ${filename} to ${tagString}.  " . implode('; ', $output));
+    }
+  }
+
+  private function setPhotoTimestamp($filename) {
+    // Invoke exiv2 to set the timestamp to that of the exif data in the photo.
+    print("Setting the timestamp of ${filename}.\n");
+    $command = sprintf('exiv2 -T rename %s',
+      escapeshellarg($filename));
+    $output = array();
+    exec($command, $output, $result);
+    if ($result !== 0) {
+      // Something bad happened.
+      throw new Exception("Failed to set the timestamp of file ${filename}.  " . implode('; ', $output));
+    }
   }
 
   public function parseArgs() {

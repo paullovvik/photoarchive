@@ -20,7 +20,7 @@ class ArchiveDB {
 
   private function createTables() {
     $photoTable = <<<EOT
-CREATE TABLE Photo (pid INTEGER PRIMARY KEY, filename TEXT UNIQUE NOT NULL, jpeg_filename TEXT UNIQUE, web_filename TEXT UNIQUE, width INTEGER, height INTEGER, md5 TEXT, exposure_time INTEGER, rating INTEGER DEFAULT 0);
+CREATE TABLE Photo (pid INTEGER PRIMARY KEY, filename TEXT UNIQUE NOT NULL, jpeg_filename TEXT UNIQUE, web_filename TEXT UNIQUE, width INTEGER, height INTEGER, md5 TEXT, jpeg_md5 TEXT, web_md5 TEXT, exposure_time INTEGER, rating INTEGER DEFAULT 0);
 EOT;
     $tagTable = <<<EOT
 CREATE TABLE Tag (tid INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);
@@ -77,19 +77,24 @@ EOT;
     $query = $this->db->query(sprintf("SELECT pid FROM Photo WHERE filename = %s", $this->db->quote($photo->filename)));
     if ($query && $data = $query->fetchObject()) {
       // Row exists.
-      $update = sprintf("UPDATE Photo SET filename = %s, width = %s, height = %s, md5 = %s, exposure_time = %s, rating = %s WHERE pid = %s",
-      $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating, $data->id));
+      $photo->pid = $data->pid;
+      $update = sprintf("UPDATE Photo SET filename = %s, width = %s, height = %s, md5 = %s, jpeg_filename = %s, jpeg_md5 = %s, exposure_time = %s, rating = %s WHERE pid = %s",
+      $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->jpeg_filename), $this->db->quote($photo->jpeg_md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating, $photo->pid));
     }
     else {
       // Need a new row.
-      $insert = sprintf("INSERT INTO Photo (filename, width, height, md5, exposure_time, rating) VALUES (%s, %s, %s, %s, %s, %s)",
-        $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating));
+      $insert = sprintf("INSERT INTO Photo (filename, width, height, md5, jpeg_filename, jpeg_md5, exposure_time, rating) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+      $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->jpeg_filename), $this->db->quote($photo->jpeg_md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating));
       $this->db->exec($insert);
     }
-    $queryString = sprintf("SELECT pid FROM Photo WHERE filename = %s", $this->db->quote($photo->filename));
-    $query = $this->db->query($queryString);
-    if ($query && $data = $query->fetchObject()) {
-      $photo->pid = $data->pid;
+
+    // Set the photo id.
+    if (!empty($photo->pid)) {
+      $queryString = sprintf("SELECT pid FROM Photo WHERE filename = %s", $this->db->quote($photo->filename));
+      $query = $this->db->query($queryString);
+      if ($query && $data = $query->fetchObject()) {
+	$photo->pid = $data->pid;
+      }
     }
     $this->savePhotoTags($photo);
   }
@@ -115,7 +120,7 @@ EOT;
     }
   }
 
-  private function savePhotoTags($photo) {
+  private function savePhotoTags(&$photo) {
     if (empty($photo->tags) || count($photo->tags) == 0) {
       return;
     }
