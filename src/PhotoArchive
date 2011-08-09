@@ -107,6 +107,7 @@ EOT;
     $archivedPhoto->md5 = md5_file($filename);
 
     $this->createJPEG($config, $archivedPhoto, $archiveDB);
+    $this->createWebJPEG($config, $archivedPhoto, $archiveDB);
     $archiveDB->updatePhoto($archivedPhoto);
   }
 
@@ -150,6 +151,39 @@ EOT;
     $this->setPhotoTimestamp($jpeg);
     $photo->jpeg_filename = $jpeg_filename;
     $photo->jpeg_md5 = md5_file($jpeg);
+  }
+
+  private function createWebJPEG($config, &$photo, $db) {
+    $full_filename = $config->jpegsDirectory . $photo->jpeg_filename;
+    $web_filename = $config->shareDirectory . $photo->jpeg_filename;
+
+    // Create the directory if needed...
+    $dir = dirname($web_filename);
+    if (!file_exists($dir)) {
+      mkdir($dir, 0755, TRUE);
+    }
+    list($width, $height) = getimagesize($full_filename);
+    // Figure out the % to reduce the image...
+    if ($width > $height) {
+      $percent = round((640.0 / $width) * 100);
+    }
+    else {
+      $percent = round((480.0 / $height) * 100);
+    }
+    $percent = min($percent, 100);
+    print("scaling ${full_filename} to ${web_filename} by ${percent}%.\n");
+    $command = sprintf('convert %s -resize %s %s',
+      escapeshellarg($full_filename), escapeshellarg("${percent}%"), escapeshellarg($web_filename));
+    $output = array();
+    exec($command, $output, $result);
+    if ($result !== 0) {
+      // Something bad happened.
+      throw new Exception("Failed to scale image file ${full_filename} to ${web_filename}.  " . implode('; ', $output));
+    }
+
+    $this->setPhotoTimestamp($web_filename);
+    $photo->web_filename = $photo->jpeg_filename;
+    $photo->web_md5 = md5_file($web_filename);
   }
 
   private function getPhotoType($filename) {

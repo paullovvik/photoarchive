@@ -78,18 +78,19 @@ EOT;
     if ($query && $data = $query->fetchObject()) {
       // Row exists.
       $photo->pid = $data->pid;
-      $update = sprintf("UPDATE Photo SET filename = %s, width = %s, height = %s, md5 = %s, jpeg_filename = %s, jpeg_md5 = %s, exposure_time = %s, rating = %s WHERE pid = %s",
-      $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->jpeg_filename), $this->db->quote($photo->jpeg_md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating, $photo->pid));
+      $update = sprintf("UPDATE Photo SET filename = %s, width = %s, height = %s, md5 = %s, jpeg_filename = %s, jpeg_md5 = %s, web_filename = %s, web_md5 = %s, exposure_time = %s, rating = %s WHERE pid = %s",
+        $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->jpeg_filename), $this->db->quote($photo->jpeg_md5), $this->db->quote($photo->web_filename), $this->db->quote($photo->web_md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating), $this->db->quote($photo->pid));
+      $this->db->exec($update);
     }
     else {
       // Need a new row.
-      $insert = sprintf("INSERT INTO Photo (filename, width, height, md5, jpeg_filename, jpeg_md5, exposure_time, rating) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-      $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->jpeg_filename), $this->db->quote($photo->jpeg_md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating));
+      $insert = sprintf("INSERT INTO Photo (filename, width, height, md5, jpeg_filename, jpeg_md5, web_filename, web_md5, exposure_time, rating) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->jpeg_filename), $this->db->quote($photo->jpeg_md5), $this->db->quote($photo->web_filename), $this->db->quote($photo->web_md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating));
       $this->db->exec($insert);
     }
 
     // Set the photo id.
-    if (!empty($photo->pid)) {
+    if (empty($photo->pid)) {
       $queryString = sprintf("SELECT pid FROM Photo WHERE filename = %s", $this->db->quote($photo->filename));
       $query = $this->db->query($queryString);
       if ($query && $data = $query->fetchObject()) {
