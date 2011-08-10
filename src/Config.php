@@ -33,7 +33,13 @@ class Config {
    */
   public function getConfiguration() {
     if ($this->config === NULL) {
-      global $picture_directory, $originals_directory, $jpegs_directory, $share_directory, $app_database, $originals_database;
+      global $picture_directory, $originals_directory, $jpegs_directory, $share_directory, $app_database, $originals_database, $share_resolution, $quality;
+      if (empty($share_resolution)) {
+	$share_resolution = '1920x1080';
+      }
+      if (empty($quality)) {
+	$quality = '85';
+      }
       $obj = new StdClass();
       $obj->pictureDirectory = $picture_directory;
       $obj->originalsDirectory = $originals_directory;
@@ -41,6 +47,8 @@ class Config {
       $obj->shareDirectory = $share_directory;
       $obj->appDB = $app_database;
       $obj->originalsDB = $originals_database;
+      $obj->shareResolution = $share_resolution;
+      $obj->quality = $quality;
       $obj->verbose = $this->verbose;
       $this->config = $obj;
     }

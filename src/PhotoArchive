@@ -163,17 +163,23 @@ EOT;
       mkdir($dir, 0755, TRUE);
     }
     list($width, $height) = getimagesize($full_filename);
+    $matches = array();
+    if (preg_match('/^([0-9]+)[xX]([0-9]+)$/', $config->shareResolution, $matches) != 1) {
+      die(sprintf("Invalid share_resolution in your config file: %s\n", $config->shareResolution));
+    }
+    $share_width = $matches[1];
+    $share_height = $matches[2];
     // Figure out the % to reduce the image...
     if ($width > $height) {
-      $percent = round((640.0 / $width) * 100);
+      $percent = round(("${share_width}.0" / $width) * 100);
     }
     else {
-      $percent = round((480.0 / $height) * 100);
+      $percent = round(("${share_height}.0" / $height) * 100);
     }
     $percent = min($percent, 100);
     print("scaling ${full_filename} to ${web_filename} by ${percent}%.\n");
-    $command = sprintf('convert %s -resize %s %s',
-      escapeshellarg($full_filename), escapeshellarg("${percent}%"), escapeshellarg($web_filename));
+    $command = sprintf('convert %s -resize %s -quality %s %s',
+      escapeshellarg($full_filename), escapeshellarg("${percent}%"), escapeshellarg($config->quality), escapeshellarg($web_filename));
     $output = array();
     exec($command, $output, $result);
     if ($result !== 0) {
