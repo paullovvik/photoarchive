@@ -116,35 +116,45 @@ EOT;
     $parts = pathinfo($photo->filename);
     $jpeg_filename = $parts['dirname'] . '/' . $parts['filename'] . '.JPG';
     $jpeg = $config->jpegsDirectory . $jpeg_filename;
+    $modified_filename = $config->pictureDirectory . $parts['dirname'] . '/' . $parts['filename'] . '_modified.JPG';
 
     // Create the directory if needed...
     $dir = dirname($jpeg);
     if (!file_exists($dir)) {
       mkdir($dir, 0755, TRUE);
     }
-    $type = $this->getPhotoType($original);
-    switch ($type) {
-    case 'JPG':
-      // No conversion needed.
-      if (!copy ($original, $jpeg)) {
-	throw new Exception("Failed to copy ${original} to ${jpeg}.");
-      }
-      break;
 
-    case 'NEF':
-      print("converting " . $original . " to ${jpeg}\n");
-      $command = sprintf('ufraw-batch --compression=99 --wb=auto --exposure=auto --base-curve=camera --overwrite --out-type=jpeg --output=%s %s',
-        escapeshellarg($jpeg), escapeshellarg($original));
-      $output = array();
-      exec($command, $output, $result);
-      if ($result !== 0) {
-	// Something bad happened.
-	throw new Exception("Failed to convert file ${original} to ${jpeg}.  " . implode('; ', $output));
+    // Is there a modified picture available?
+    if (file_exists($modified_filename)) {
+      if (!copy ($modified_filename, $jpeg)) {
+        throw new Exception("Failed to copy ${modified_filename} to ${jpeg}.");
       }
-      break;
+    }
+    else {
+      $type = $this->getPhotoType($original);
+      switch ($type) {
+        case 'JPG':
+          // No conversion needed.
+          if (!copy ($original, $jpeg)) {
+            throw new Exception("Failed to copy ${original} to ${jpeg}.");
+          }
+          break;
 
-    default:
-      throw new Exception("Unexpected file type: ${type}.");
+        case 'NEF':
+          print("converting " . $original . " to ${jpeg}\n");
+          $command = sprintf('ufraw-batch --compression=99 --wb=auto --exposure=auto --base-curve=camera --overwrite --out-type=jpeg --output=%s %s',
+                     escapeshellarg($jpeg), escapeshellarg($original));
+          $output = array();
+          exec($command, $output, $result);
+          if ($result !== 0) {
+            // Something bad happened.
+            throw new Exception("Failed to convert file ${original} to ${jpeg}.  " . implode('; ', $output));
+          }
+          break;
+
+        default:
+          throw new Exception("Unexpected file type: ${type}.");
+      }
     }
     $this->setPhotoRating($jpeg, $photo->rating);
     $this->setPhotoTags($jpeg, $photo->tags);
