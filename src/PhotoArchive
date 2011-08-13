@@ -66,6 +66,9 @@ EOT;
     if (count($tags) > 0) {
       $out[] = "Tags: " . implode(', ', $tags);
     }
+    if (isset($photo->modified)) {
+      $out[] = "Modified: " . ($photo->modified ? "TRUE" : "FALSE");
+    }
     print(implode("\n", $out) . "\n");
   }
 
@@ -83,6 +86,7 @@ EOT;
     $archivedPhoto->height = $photo->height;
     $archivedPhoto->exposure_time = $photo->exposure_time;
     $archivedPhoto->rating = $photo->rating;
+    $archivedPhoto->modified = FALSE;
 
     // Get the photo tags...
     $tags = $photoDB->getTags($photo->id);
@@ -116,7 +120,7 @@ EOT;
     $parts = pathinfo($photo->filename);
     $jpeg_filename = $parts['dirname'] . '/' . $parts['filename'] . '.JPG';
     $jpeg = $config->jpegsDirectory . $jpeg_filename;
-    $modified_filename = $config->pictureDirectory . $parts['dirname'] . '/' . $parts['filename'] . '_modified.JPG';
+    $modified_filename = $config->pictureDirectory . $parts['dirname'] . '/' . $parts['filename'] . '_modified.';
 
     // Create the directory if needed...
     $dir = dirname($jpeg);
@@ -125,10 +129,17 @@ EOT;
     }
 
     // Is there a modified picture available?
-    if (file_exists($modified_filename)) {
-      if (!copy ($modified_filename, $jpeg)) {
-        throw new Exception("Failed to copy ${modified_filename} to ${jpeg}.");
+    if (file_exists($modified_filename . 'JPG')) {
+      $modified = $modified_filename . 'JPG';
+    }
+    else if (file_exists($modified_filename . 'jpg')) {
+      $modified = $modified_filename . 'jpg';
+    }
+    if (!empty($modified)) {
+      if (!copy ($modified, $jpeg)) {
+        throw new Exception("Failed to copy ${modified} to ${jpeg}.");
       }
+      $photo->modified = TRUE;
     }
     else {
       $type = $this->getPhotoType($original);
