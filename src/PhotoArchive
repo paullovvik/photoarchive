@@ -75,7 +75,7 @@ EOT;
   /**
    * Causes the specfied photo to be archived.
    */
-  private function archiveOriginalPhoto($config, $photo, $photoDB, $archiveDB) {
+  private function archiveOriginalPhoto($config, $photo, $photoDB, $archiveDB, $overwrite = FALSE) {
     $archivedPhoto = new StdClass();
     $escapedPath = preg_replace('/\//', '\\\/', $config->pictureDirectory);
     $partialPath = preg_replace('/^' . $escapedPath . '/', '', $photo->filename);;
@@ -92,123 +92,140 @@ EOT;
     $tags = $photoDB->getTags($photo->id);
     $archivedPhoto->tags = $tags;
 
-    // Create the directory if needed...
-    $dir = dirname($filename);
-    if (!file_exists($dir)) {
-      mkdir($dir, 0755, TRUE);
+    if (!$overwrite && file_exists($filename)) {
+      // Do nothing - the file already exists.
+      print("Skipping file $filename\n");
+    }
+    else {
+      print("Copying file $filename\n");
+      // Create the directory if needed...
+      $dir = dirname($filename);
+      if (!file_exists($dir)) {
+        mkdir($dir, 0755, TRUE);
+      }
+
+      if (!copy($photo->filename, $filename)) {
+        throw new Exception("Failed to copy " . $photo->filename . " to ${filename}");
+      }
+      $info = pathinfo($photo->filename);
+      $ext = strtoupper($info['extension']);
+      if ($ext == 'JPG') {
+        $this->setPhotoRating($filename, $archivedPhoto->rating);
+        $this->setPhotoTags($filename, $tags);
+      }
+      $this->setPhotoTimestamp($filename);
     }
 
-    if (!copy($photo->filename, $filename)) {
-      throw new Exception("Failed to copy " . $photo->filename . " to ${filename}");
-    }
-    $info = pathinfo($photo->filename);
-    $ext = strtoupper($info['extension']);
-    if ($ext == 'JPG') {
-      $this->setPhotoRating($filename, $archivedPhoto->rating);
-      $this->setPhotoTags($filename, $tags);
-    }
-    $this->setPhotoTimestamp($filename);
     $archivedPhoto->md5 = md5_file($filename);
-
-    $this->createJPEG($config, $archivedPhoto, $archiveDB);
-    $this->createWebJPEG($config, $archivedPhoto, $archiveDB);
+    $this->createJPEG($config, $archivedPhoto, $archiveDB, $overwrite);
+    $this->createWebJPEG($config, $archivedPhoto, $archiveDB, $overwrite);
     $archiveDB->updatePhoto($archivedPhoto);
   }
 
-  private function createJPEG($config, &$photo, $db) {
+  private function createJPEG($config, &$photo, $db, $overwrite = FALSE) {
     $original = $config->originalsDirectory . $photo->filename;
     $parts = pathinfo($photo->filename);
     $jpeg_filename = $parts['dirname'] . '/' . $parts['filename'] . '.JPG';
     $jpeg = $config->jpegsDirectory . $jpeg_filename;
     $modified_filename = $config->pictureDirectory . $parts['dirname'] . '/' . $parts['filename'] . '_modified.';
 
-    // Create the directory if needed...
-    $dir = dirname($jpeg);
-    if (!file_exists($dir)) {
-      mkdir($dir, 0755, TRUE);
-    }
-
-    // Is there a modified picture available?
-    if (file_exists($modified_filename . 'JPG')) {
-      $modified = $modified_filename . 'JPG';
-    }
-    else if (file_exists($modified_filename . 'jpg')) {
-      $modified = $modified_filename . 'jpg';
-    }
-    if (!empty($modified)) {
-      if (!copy ($modified, $jpeg)) {
-        throw new Exception("Failed to copy ${modified} to ${jpeg}.");
-      }
-      $photo->modified = TRUE;
+    if (!$overwrite && file_exists($jpeg)) {
+      // The file exists, do nothing.
     }
     else {
-      $type = $this->getPhotoType($original);
-      switch ($type) {
-        case 'JPG':
-          // No conversion needed.
-          if (!copy ($original, $jpeg)) {
-            throw new Exception("Failed to copy ${original} to ${jpeg}.");
-          }
-          break;
-
-        case 'NEF':
-          print("converting " . $original . " to ${jpeg}\n");
-          $command = sprintf('ufraw-batch --compression=99 --wb=auto --exposure=auto --base-curve=camera --overwrite --out-type=jpeg --output=%s %s',
-                     escapeshellarg($jpeg), escapeshellarg($original));
-          $output = array();
-          exec($command, $output, $result);
-          if ($result !== 0) {
-            // Something bad happened.
-            throw new Exception("Failed to convert file ${original} to ${jpeg}.  " . implode('; ', $output));
-          }
-          break;
-
-        default:
-          throw new Exception("Unexpected file type: ${type}.");
+      // Create the directory if needed...
+      $dir = dirname($jpeg);
+      if (!file_exists($dir)) {
+        mkdir($dir, 0755, TRUE);
       }
+
+      // Is there a modified picture available?
+      if (file_exists($modified_filename . 'JPG')) {
+        $modified = $modified_filename . 'JPG';
+      }
+      else if (file_exists($modified_filename . 'jpg')) {
+        $modified = $modified_filename . 'jpg';
+      }
+      if (!empty($modified)) {
+        if (!copy ($modified, $jpeg)) {
+          throw new Exception("Failed to copy ${modified} to ${jpeg}.");
+        }
+        $photo->modified = TRUE;
+      }
+      else {
+        $type = $this->getPhotoType($original);
+        switch ($type) {
+          case 'JPG':
+            // No conversion needed.
+            if (!copy ($original, $jpeg)) {
+              throw new Exception("Failed to copy ${original} to ${jpeg}.");
+            }
+            break;
+
+          case 'NEF':
+            print("converting " . $original . " to ${jpeg}\n");
+            $command = sprintf('ufraw-batch --compression=99 --wb=auto --exposure=auto --base-curve=camera --overwrite --out-type=jpeg --output=%s %s',
+                       escapeshellarg($jpeg), escapeshellarg($original));
+            $output = array();
+            exec($command, $output, $result);
+            if ($result !== 0) {
+              // Something bad happened.
+              throw new Exception("Failed to convert file ${original} to ${jpeg}.  " . implode('; ', $output));
+            }
+            break;
+
+          default:
+            throw new Exception("Unexpected file type: ${type}.");
+        }
+      }
+      $this->setPhotoRating($jpeg, $photo->rating);
+      $this->setPhotoTags($jpeg, $photo->tags);
+      $this->setPhotoTimestamp($jpeg);
     }
-    $this->setPhotoRating($jpeg, $photo->rating);
-    $this->setPhotoTags($jpeg, $photo->tags);
-    $this->setPhotoTimestamp($jpeg);
     $photo->jpeg_filename = $jpeg_filename;
     $photo->jpeg_md5 = md5_file($jpeg);
   }
 
-  private function createWebJPEG($config, &$photo, $db) {
+  private function createWebJPEG($config, &$photo, $db, $overwrite = FALSE) {
     $full_filename = $config->jpegsDirectory . $photo->jpeg_filename;
     $web_filename = $config->shareDirectory . $photo->jpeg_filename;
 
-    // Create the directory if needed...
-    $dir = dirname($web_filename);
-    if (!file_exists($dir)) {
-      mkdir($dir, 0755, TRUE);
-    }
-    list($width, $height) = getimagesize($full_filename);
-    $matches = array();
-    if (preg_match('/^([0-9]+)[xX]([0-9]+)$/', $config->shareResolution, $matches) != 1) {
-      die(sprintf("Invalid share_resolution in your config file: %s\n", $config->shareResolution));
-    }
-    $share_width = $matches[1];
-    $share_height = $matches[2];
-    // Figure out the % to reduce the image...
-    if ($width > $height) {
-      $percent = round(("${share_width}.0" / $width) * 100);
+    if (!$overwrite && file_exists($web_filename)) {
+      // The file exists already.
     }
     else {
-      $percent = round(("${share_height}.0" / $height) * 100);
-    }
-    $percent = min($percent, 100);
-    print("scaling ${full_filename} to ${web_filename} by ${percent}%.\n");
-    $command = sprintf('convert %s -resize %s -quality %s %s',
-      escapeshellarg($full_filename), escapeshellarg("${percent}%"), escapeshellarg($config->quality), escapeshellarg($web_filename));
-    $output = array();
-    exec($command, $output, $result);
-    if ($result !== 0) {
-      // Something bad happened.
-      throw new Exception("Failed to scale image file ${full_filename} to ${web_filename}.  " . implode('; ', $output));
-    }
+      // Create the directory if needed...
+      $dir = dirname($web_filename);
+      if (!file_exists($dir)) {
+        mkdir($dir, 0755, TRUE);
+      }
+      list($width, $height) = getimagesize($full_filename);
+      $matches = array();
+      if (preg_match('/^([0-9]+)[xX]([0-9]+)$/', $config->shareResolution, $matches) != 1) {
+        die(sprintf("Invalid share_resolution in your config file: %s\n", $config->shareResolution));
+      }
+      $share_width = $matches[1];
+      $share_height = $matches[2];
+      // Figure out the % to reduce the image...
+      if ($width > $height) {
+        $percent = round(("${share_width}.0" / $width) * 100);
+      }
+      else {
+        $percent = round(("${share_height}.0" / $height) * 100);
+      }
+      $percent = min($percent, 100);
+      print("scaling ${full_filename} to ${web_filename} by ${percent}%.\n");
+      $command = sprintf('convert %s -resize %s -quality %s %s',
+        escapeshellarg($full_filename), escapeshellarg("${percent}%"), escapeshellarg($config->quality), escapeshellarg($web_filename));
+      $output = array();
+      exec($command, $output, $result);
+      if ($result !== 0) {
+        // Something bad happened.
+        throw new Exception("Failed to scale image file ${full_filename} to ${web_filename}.  " . implode('; ', $output));
+      }
 
-    $this->setPhotoTimestamp($web_filename);
+      $this->setPhotoTimestamp($web_filename);
+    }
     $photo->web_filename = $photo->jpeg_filename;
     $photo->web_md5 = md5_file($web_filename);
   }
