@@ -262,7 +262,7 @@ EOT;
     exec($command, $output, $result);
     if ($result !== 0) {
       // Something bad happened.
-      throw new Exception("Failed to set the rating of file ${filename} to ${rating}.  " . implode('; ', $output));
+      throw new Exception("Failed to set the rating of file ${filename} to ${rating}.  Command: ${command}; " . implode('; ', $output));
     }
   }
 
@@ -270,7 +270,7 @@ EOT;
     if (empty($tags)) {
       return;
     }
-    $tagString = implode(',', $tags);
+    $tagString = $this->cutTagsToSize(implode(',', $tags));
     // Invoke exiv2 to set the tags.
     print("Setting the tags of ${filename} to ${tagString}.\n");
     if (strlen($tagString) > 64) {
@@ -282,8 +282,40 @@ EOT;
     exec($command, $output, $result);
     if ($result !== 0) {
       // Something bad happened.
-      throw new Exception("Failed to set the tags of file ${filename} to ${tagString}.  " . implode('; ', $output));
+      throw new Exception("Failed to set the tags of file ${filename} to ${tagString}.  Command: ${command};  " . implode('; ', $output));
     }
+  }
+
+  /**
+   * Takes a tag string and ensures that it is not larger than the specified
+   * maximum length.
+   *
+   * If the string is longer than the maximum length, the tags are removed
+   * (longest one first) until the tags will fit in the specified space.
+   */
+  private function cutTagsToSize($tag_string, $max_len = 64) {
+    $len = strlen($tag_string);
+    if ( $len > $max_len) {
+      $elements = explode(',', $tag_string);
+      usort($elements, 'PhotoArchive::strLenSort');
+      $total = 0;
+      while (count($elements) > 0 && $len - $total > $max_len) {
+        $tag = array_shift($elements);
+        $total = strlen($tag) + 1;
+      }
+      $tag_string = implode(',', $elements);
+    }
+    return $tag_string;
+  }
+
+  /**
+   * Sort function that sorts two strings by their length in reverse order.
+   *
+   * This is used to sort the tags in the case that the length of the tags
+   * string is too long to figure out which tag(s) should be removed.
+   */
+  public static function strLenSort($a, $b) {
+    return (strlen($a) - strlen($b));
   }
 
   private function setPhotoTimestamp($filename) {
@@ -295,7 +327,7 @@ EOT;
     exec($command, $output, $result);
     if ($result !== 0) {
       // Something bad happened.
-      throw new Exception("Failed to set the timestamp of file ${filename}.  " . implode('; ', $output));
+      throw new Exception("Failed to set the timestamp of file ${filename}.  Command: ${command};  " . implode('; ', $output));
     }
   }
 
