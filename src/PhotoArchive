@@ -303,7 +303,7 @@ EOT;
       $total = 0;
       while (count($elements) > 0 && $len - $total > $max_len) {
         $tag = array_shift($elements);
-        $total = strlen($tag) + 1;
+        $total += strlen($tag) + 1;
       }
       $tag_string = implode(',', $elements);
     }
