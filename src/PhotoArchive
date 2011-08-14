@@ -21,6 +21,8 @@ Commands:
 
   tags - Prints tag information about the specified photos.
 
+  fetch - Fetches specified photos.  The photos come from the sharable directory.
+
 OPTIONS:
 
   -v - Turn on verbose mode
@@ -418,6 +420,10 @@ EOT;
         $this->archive($conf, $args, $extraArgs);
         break;
 
+      case 'fetch':
+        $this->fetch($conf, $args, $extraArgs);
+        break;
+
       default:
         $this->help();
     }
@@ -483,6 +489,42 @@ EOT;
     }
     print("${count} photos matched your query.\n");
     $photoDB->close();
+  }
+
+  public function fetch($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    $photos = $archiveDB->getPhotos($args);
+    $count = 0;
+    switch (count($extraArgs)) {
+      case 0:
+        $dest = getcwd();
+        break;
+
+      case 1:
+        $dest = $extraArgs[0];
+        break;
+
+      default:
+        throw new Exception("Destination directory is not specified.");
+    }
+    if (!is_dir($dest)) {
+      throw new Exception("Destination directory ${dest} does not exist or is not a directory.");
+    }
+
+    $prefix = $config->shareDirectory;
+    while ($photo = $photos->fetchObject()) {
+      $from = $prefix . "/" . $photo->web_filename;
+      $to = $dest . "/" . basename($photo->web_filename);
+      if (!@copy($from, $to)) {
+        print("Failed to copy ${from} to ${to}.\n");
+      }
+      else {
+        print("Copied ${from} to ${to}.\n");
+      }
+      $count++;
+    }
+    print("${count} photos matched your query.\n");
+    $archiveDB->close();
   }
 
   public function main() {
