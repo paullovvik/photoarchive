@@ -461,7 +461,7 @@ EOT;
     else {
       $db = new PhotoDB($config);
     }
-    $photos = $db->getPhotos($args);
+    $photos = $db->getPhotos($config, $args);
     $count = 0;
     while ($photo = $photos->fetchObject()) {
       $this->printPhotoInfo($photo, $config, $db);
@@ -481,7 +481,7 @@ EOT;
   public function archive($config, $args, $extraArgs) {
     $archiveDB = new ArchiveDB($config);
     $photoDB = new PhotoDB($config);
-    $photos = $photoDB->getPhotos($args);
+    $photos = $photoDB->getPhotos($config, $args);
     $count = 0;
     while ($photo = $photos->fetchObject()) {
       $this->archiveOriginalPhoto($config, $photo, $photoDB, $archiveDB);
@@ -493,7 +493,7 @@ EOT;
 
   public function fetch($config, $args, $extraArgs) {
     $archiveDB = new ArchiveDB($config);
-    $photos = $archiveDB->getPhotos($args);
+    $photos = $archiveDB->getPhotos($config, $args);
     $count = 0;
     switch (count($extraArgs)) {
       case 0:

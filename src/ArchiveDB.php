@@ -33,7 +33,7 @@ EOT;
     $this->db->exec($photoTagTable);
   }
 
-  function getPhotos($args) {
+  function getPhotos($config, $args) {
     // Construct the where clause:
     $where = array();
     if (isset($args->from)) {
@@ -58,6 +58,14 @@ EOT;
 	die("-r requires an operation and a rating, like '>=3'.  Instead " . $args->rating . " was passed. (count of matches is " . count($matches) . ".\n");
       }
     }
+    if (isset($args->tag)) {
+      //select * from photo where pid in (select photo_id from PhotoTag join Tag where PhotoTag.tag_id = Tag.tid and name = 'Paul') AND pid in (select photo_id from PhotoTag join Tag where PhotoTag.tag_id = Tag.tid and name = 'Holly');
+      // Pull out the tags...
+      $tags = explode(',', $args->tag);
+      for ($tagIndex = 0, $tagLen = count($tags); $tagIndex < $tagLen; $tagIndex++) {
+	$where[] = sprintf("Photo.pid IN (SELECT photo_id FROM PhotoTag JOIN Tag WHERE PhotoTag.tag_id = Tag.tid AND Tag.name = %s)", $this->db->quote(trim($tags[$tagIndex])));
+      }
+    }
     if (count($where) > 0) {
       $whereClause = sprintf("WHERE %s", implode(" AND ", $where));
     }
@@ -68,6 +76,9 @@ EOT;
     // Do not sanitize the where clause; the individual elements have
     // already been sanitized.
     $query = sprintf("SELECT * FROM Photo %s", $whereClause);
+    if ($config->verbose) {
+      print("Query: ${query}\n");
+    }
     $result = $this->db->query($query);
     return $result;
   }

@@ -22,7 +22,7 @@ class PhotoDB {
     return $photoId;
   }
 
-  function getPhotos($args) {
+  function getPhotos($config, $args) {
     // Construct the where clause:
     $where = array();
     if (isset($args->from)) {
