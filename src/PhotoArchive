@@ -273,18 +273,20 @@ EOT;
       return;
     }
     $tagString = $this->cutTagsToSize(implode(',', $tags));
-    // Invoke exiv2 to set the tags.
-    print("Setting the tags of ${filename} to ${tagString}.\n");
-    if (strlen($tagString) > 64) {
-      throw new Exception("The tags cannot exceed 64 characters for image ${filename} (tags are '${tagString}'.");
-    }
-    $command = sprintf('exiv2 -M"add Iptc.Application2.Keywords %s" %s',
-      $tagString, escapeshellarg($filename));
-    $output = array();
-    exec($command, $output, $result);
-    if ($result !== 0) {
-      // Something bad happened.
-      throw new Exception("Failed to set the tags of file ${filename} to ${tagString}.  Command: ${command};  " . implode('; ', $output));
+    if (count($tagString) > 0) {
+      // Invoke exiv2 to set the tags.
+      print("Setting the tags of ${filename} to ${tagString}.\n");
+      if (strlen($tagString) > 64) {
+        throw new Exception("The tags cannot exceed 64 characters for image ${filename} (tags are '${tagString}'.");
+      }
+      $command = sprintf('exiv2 -M"add Iptc.Application2.Keywords %s" %s',
+        $tagString, escapeshellarg($filename));
+      $output = array();
+      exec($command, $output, $result);
+      if ($result !== 0) {
+        // Something bad happened.
+        throw new Exception("Failed to set the tags of file ${filename} to ${tagString}.  Command: ${command};  " . implode('; ', $output));
+      }
     }
   }
 
@@ -455,7 +457,7 @@ EOT;
   }
 
   public function listPhotos($config, $args, $extraArgs) {
-    if ($args->db == 'original') {
+    if (isset($args->db) && $args->db == 'original') {
       $db = new ArchiveDB($config);
     }
     else {
