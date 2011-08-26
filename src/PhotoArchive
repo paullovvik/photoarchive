@@ -109,12 +109,6 @@ EOT;
       if (!copy($photo->filename, $filename)) {
         throw new Exception("Failed to copy " . $photo->filename . " to ${filename}");
       }
-      $info = pathinfo($photo->filename);
-      $ext = strtoupper($info['extension']);
-      if ($ext == 'JPG') {
-        $this->setPhotoRating($filename, $archivedPhoto->rating);
-        $this->setPhotoTags($filename, $tags);
-      }
       $this->setPhotoTimestamp($filename);
     }
 
@@ -165,8 +159,10 @@ EOT;
             break;
 
           case 'NEF':
-            print("converting " . $original . " to ${jpeg}\n");
-            $command = sprintf('ufraw-batch --compression=99 --wb=auto --exposure=auto --base-curve=camera --overwrite --out-type=jpeg --output=%s %s',
+            if ($config->verbose) {
+              print("converting " . $original . " to ${jpeg}\n");
+            }
+            $command = sprintf("ufraw-batch --compression=99 --wb=auto --exposure=auto --base-curve=camera --overwrite --out-type=jpeg --output=%s %s 2>&1",
                        escapeshellarg($jpeg), escapeshellarg($original));
             $output = array();
             exec($command, $output, $result);
@@ -216,7 +212,9 @@ EOT;
         $percent = round(("${share_height}.0" / $height) * 100);
       }
       $percent = min($percent, 100);
-      print("scaling ${full_filename} to ${web_filename} by ${percent}%.\n");
+      if ($config->verbose) {
+        print("scaling ${full_filename} to ${web_filename} by ${percent}%.\n");
+      }
       $command = sprintf('convert %s -resize %s -quality %s %s',
         escapeshellarg($full_filename), escapeshellarg("${percent}%"), escapeshellarg($config->quality), escapeshellarg($web_filename));
       $output = array();
@@ -240,7 +238,6 @@ EOT;
 
   private function copyPhoto($from, $to) {
     // Copy the file, preserving the timestamp, etc.
-    print("Copying " . $from . " to $to\n");
     $copy = 'cp -p ' . escapeshellarg($from) . ' ' . escapeshellarg($to);
     $output = array();
     exec($copy, $output, $result);
@@ -252,14 +249,12 @@ EOT;
 
   private function setPhotoRating($filename, $rating) {
     // Invoke exiv2 to set the rating.
-    print("Setting the rating of ${filename} to ${rating}.\n");
     if ($rating < 0 || $rating > 5) {
       // This is not a legal rating.
       throw new Exception("Rating must be between 0 and 5, inclusive.  Instead it was ${rating} for file ${filename}.");
     }
     $command = sprintf('exiv2 -M"add Xmp.xmp.Rating %s" %s',
       $rating, escapeshellarg($filename));
-    print("Command: '${command}'\n");
     $output = array();
     exec($command, $output, $result);
     if ($result !== 0) {
@@ -275,7 +270,6 @@ EOT;
     $tagString = $this->cutTagsToSize(implode(',', $tags));
     if (count($tagString) > 0) {
       // Invoke exiv2 to set the tags.
-      print("Setting the tags of ${filename} to ${tagString}.\n");
       if (strlen($tagString) > 64) {
         throw new Exception("The tags cannot exceed 64 characters for image ${filename} (tags are '${tagString}'.");
       }
@@ -324,7 +318,6 @@ EOT;
 
   private function setPhotoTimestamp($filename) {
     // Invoke exiv2 to set the timestamp to that of the exif data in the photo.
-    print("Setting the timestamp of ${filename}.\n");
     $command = sprintf('exiv2 -T rename %s',
       escapeshellarg($filename));
     $output = array();
@@ -476,7 +469,6 @@ EOT;
   public function tags($config, $args, $extraArgs) {
     $photoDB = new PhotoDB($config);
     $tags = $photoDB->getAllTags();
-    print(implode("\n", $tags) . "\n");
     $photoDB->close();
   }
 

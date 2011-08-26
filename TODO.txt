@@ -1,3 +1,6 @@
+Deal with movies
+
+----
 Need a workflow for editing the full size jpeg...
 
 Something like

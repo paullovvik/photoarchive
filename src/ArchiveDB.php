@@ -85,10 +85,8 @@ EOT;
 
   public function updatePhoto(&$photo) {
     // Is the photo already in the archive?
-    $query = $this->db->query(sprintf("SELECT pid FROM Photo WHERE filename = %s", $this->db->quote($photo->filename)));
-    if ($query && $data = $query->fetchObject()) {
-      // Row exists.
-      $photo->pid = $data->pid;
+    $this->getPhotoId($photo);
+    if (isset($photo->pid)) {
       $update = sprintf("UPDATE Photo SET filename = %s, width = %s, height = %s, md5 = %s, jpeg_filename = %s, jpeg_md5 = %s, web_filename = %s, web_md5 = %s, exposure_time = %s, rating = %s, modified = %s WHERE pid = %s",
 $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->jpeg_filename), $this->db->quote($photo->jpeg_md5), $this->db->quote($photo->web_filename), $this->db->quote($photo->web_md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating), $this->db->quote($photo->modified ? 1 : 0), $this->db->quote($photo->pid));
       $this->db->exec($update);
@@ -101,13 +99,7 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
     }
 
     // Set the photo id.
-    if (empty($photo->pid)) {
-      $queryString = sprintf("SELECT pid FROM Photo WHERE filename = %s", $this->db->quote($photo->filename));
-      $query = $this->db->query($queryString);
-      if ($query && $data = $query->fetchObject()) {
-	$photo->pid = $data->pid;
-      }
-    }
+    $this->getPhotoId($photo);
     $this->savePhotoTags($photo);
   }
 
@@ -115,20 +107,20 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
     if (empty($tags) || count($tags) == 0) {
       return;
     }
-    $query = "SELECT * FROM Tag WHERE name = %s";
+    $query_template = "SELECT * FROM Tag WHERE name = %s";
     for ($i = 0, $len = count($tags); $i < $len; $i++) {
-      $tag = $this->db->query(sprintf($query, $this->db->quote($tags[$i])));
+      $query = sprintf($query_template, $this->db->quote($tags[$i]));
+      $tag = $this->db->query($query);
       if (!empty($tag)) {
 	$data = $tag->fetchObject();
 	if ($data && $data->name == $tags[$i]) {
 	  // The tag exists.
-	}
-	else {
-	  // The tag does not yet exist.
-	  $insert = sprintf("INSERT INTO Tag (name) VALUES (%s)", $this->db->quote($tags[$i]));
-	  $this->db->exec($insert);
+	  continue;
 	}
       }
+      // The tag does not yet exist.
+      $insert = sprintf("INSERT INTO Tag (name) VALUES (%s)", $this->db->quote($tags[$i]));
+      $this->db->exec($insert);
     }
   }
 
@@ -150,7 +142,8 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
 	    // It already exists.
 	  }
 	  else {
-	    $this->db->exec(sprintf("INSERT INTO PhotoTag (photo_id, tag_id) VALUES (%s, %s)", $this->db->quote($photo->pid), $this->db->quote($data->tid)));
+	    $insert = sprintf("INSERT INTO PhotoTag (photo_id, tag_id) VALUES (%s, %s)", $this->db->quote($photo->pid), $this->db->quote($data->tid));
+	    $this->db->exec($insert);
 	  }
 	}
       }
@@ -185,26 +178,33 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
   // TODO: You are here.  Should save the photo, then verify that the tags are in order.
   public function savePhoto($config, $photo) {
     $this->createTags($photo->tags);
-    if (!empty($photo->pid)) {
-      // Make sure the entry doesn't exist...
-      $photoResult = $this->db->query(sprintf("SELECT pid FROM Photo WHERE filename = %s", $this->db->quote($photo->filename)));
-      if ($photoResult && $photoId = $photoResult->fetchObject()) {
-	$photo->pid = $photoId->pid;
-      }
-    }
+    $this->getPhotoId($photo);
+
     // Now we have the photo id or it is an insert.
-    if (!empty($photo->id)) {
+    if (isset($photo->id)) {
       // Update
       $this->db->exec(sprintf("UPDATE Photo set width = %s, height = %s, md5 = %s, exposure_time = %s, rating = %s WHERE pid = %s)",
         $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating), $this->db->quote($photo->pid)));
     }
     else {
       // Insert TODO: You are here
-      $this->db->exec(sprintf("INSERT INTO Photo (filename, width, height, md5, exposure_time, rating) VALUES (%s, %s, %s, %s, %s)",
+      $this->db->exec(sprintf("INSERT INTO Photo (filename, width, height, md5, exposure_time, rating) VALUES (%s, %s, %s, %s, %s, %s)",
       $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating)));
     }
     // Tag associations go here
+    $this->getPhotoId($photo);
     $this->savePhotoTags($photo);
+  }
+
+  private function getPhotoId(&$photo) {
+    if (!isset($photo->pid)) {
+      $query = $this->db->query(sprintf("SELECT pid FROM Photo WHERE filename = %s", $this->db->quote($photo->filename)));
+      if ($query && $data = $query->fetchObject()) {
+	if (isset($data->pid)) {
+	  $photo->pid = $data->pid;
+	}
+      }
+    }
   }
 
   private function addPaths($config, &$photo) {
