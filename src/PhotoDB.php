@@ -47,6 +47,9 @@ class PhotoDB {
 	die("-r requires an operation and a rating, like '>=3'.  Instead " . $args->rating . " was passed. (count of matches is " . count($matches) . ".\n");
       }
     }
+
+    // Ignore all images that are deleted.
+    $where[] = '(flags & 4) != 4';
     if (count($where) > 0) {
       $whereClause = sprintf("WHERE %s", implode(" AND ", $where));
     }
