@@ -21,7 +21,11 @@ Commands:
 
   tags - Prints tag information about the specified photos.
 
-  fetch - Fetches specified photos.  The photos come from the sharable directory.
+  fetch - Fetches specified photos.  By default the sharable size photo is fetched.
+         --full-size - Fetch the full size JPEG image instead.
+         --original-size - Fetch the original image instead.
+
+  remove - Removes specified photos from the archive.  They will be removed from the database and the photos will be removed.
 
 OPTIONS:
 
@@ -384,6 +388,17 @@ EOT;
 	  $args->db = 'original';
 	  break;
 
+        case '--full-size':
+          $args->photo_size = 'full';
+          print("Detected full size argument.\n");
+          ++$i;
+          break;
+
+        case '--original-size':
+          $args->photo_size = 'original';
+          ++$i;
+          break;
+
         default:
           while ($i < $argc) {
             $extraArgs[] = $argv[$i++];
@@ -417,6 +432,10 @@ EOT;
 
       case 'fetch':
         $this->fetch($conf, $args, $extraArgs);
+        break;
+
+      case 'remove':
+        $this->remove($conf, $args, $extraArgs);
         break;
 
       default:
@@ -507,14 +526,76 @@ EOT;
 
     $prefix = $config->shareDirectory;
     while ($photo = $photos->fetchObject()) {
-      $from = $prefix . "/" . $photo->web_filename;
-      $to = $dest . "/" . basename($photo->web_filename);
+      $from = $this->getPhotoFilename($config, $args, $photo);
+      $to = $dest . "/" . basename($from);
       if (!@copy($from, $to)) {
         print("Failed to copy ${from} to ${to}.\n");
       }
       else {
+        $this->setPhotoTimestamp($to);
         print("Copied ${from} to ${to}.\n");
       }
+      $count++;
+    }
+    print("${count} photos matched your query.\n");
+    $archiveDB->close();
+  }
+
+  /**
+   * Returns the correct path to the photo based on the command line arguments.
+   *
+   * This is currently used in the fetch method to allow the user to identify
+   * which variant of the photo is desired.
+   *
+   * @param {Config} $config
+   *   The configuration object that identifies where the database and photo
+   *   directories are.
+   * @param {StdClass} $args
+   *   The processed command line arguments that identify which of the photo
+   *   variants the user is interested in.
+   * @param {StdClass} $photo
+   *   A representation of the photo, loaded from the database.
+   */
+  private function getPhotoFilename($config, $args, $photo) {
+    $prefix = $config->shareDirectory;
+    $filename = $photo->web_filename;
+    if (!empty($args->photo_size)) {
+      switch ($args->photo_size) {
+        case 'full':
+          $prefix = $config->jpegsDirectory;
+          $filename = $photo->jpeg_filename;
+          break;
+
+        case 'original':
+          $prefix = $config->originalsDirectory;
+          $filename = $photo->filename;
+          break;
+      }
+    }
+    return  $prefix . "/" . $filename;
+  }
+
+  public function remove($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    $photos = $archiveDB->getPhotos($config, $args);
+    $count = 0;
+    $orig_prefix = $config->originalsDirectory;
+    $jpeg_prefix = $config->jpegsDirectory;
+    $share_prefix = $config->shareDirectory;
+    while ($photo = $photos->fetchObject()) {
+      $orig = $orig_prefix . $photo->filename;
+      $jpeg = $jpeg_prefix . $photo->jpeg_filename;
+      $share = $share_prefix . $photo->web_filename;
+      if (!@unlink($orig)) {
+        print("Failed to delete ${orig}.\n");
+      }
+      if (!@unlink($jpeg)) {
+        print("Failed to delete ${jpeg}.\n");
+      }
+      if (!@unlink($share)) {
+        print("Failed to delete ${share}.\n");
+      }
+      $archiveDB->remove($config, $photo);
       $count++;
     }
     print("${count} photos matched your query.\n");

@@ -225,6 +225,15 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
     return $tags;
   }
 
+  private function removeTags($photoId) {
+    $this->db->exec(sprintf("DELETE FROM PhotoTag WHERE photo_id = %s", $this->db->quote($photoId)));
+  }
+
+  public function remove($config, &$photo) {
+    $this->removeTags($photo->pid);
+    $this->db->exec(sprintf("DELETE FROM Photo WHERE pid = %s", $this->db->quote($photo->pid)));
+  }
+
   public function close() {
     unset($this->db);
   }

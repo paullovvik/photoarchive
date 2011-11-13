@@ -18,6 +18,3 @@ PhotoArchive remove-tag <list> oldtag
 PhotoArchive set-rating <list> rating
 
 All of these update the original only if it is a JPEG, they update the full size JPEG and the web size jpeg as well as the database.
-
---------
-* Modify fetch to be able to get originals or full size JPEG images.
