@@ -83,6 +83,41 @@ EOT;
     return $result;
   }
 
+  /**
+   * Retrieves a photo corresponding to the specified md5 sum.
+   *
+   * @param {Config} $config
+   *   The configuration object that identifies where the database and photo
+   *   directories are.
+   * @param {StdClass} $args
+   *   The processed command line arguments that identify which of the photo
+   *   variants the user is interested in.
+   * @param {String} $md5
+   *   The md5sum of the desired photo.  This can match any of the 3
+   *   variants (original, full size jpeg, sharable jpeg).
+   * @return {Photo}
+   *   The matching photo.
+   */
+  function getPhotoByMD5($config, $args, $md5) {
+    // Construct the where clause:
+    $where = array();
+
+    $where[] = sprintf("md5 = %s", $this->db->quote($md5));
+    $where[] = sprintf("jpeg_md5 = %s", $this->db->quote($md5));
+    $where[] = sprintf("web_md5 = %s", $this->db->quote($md5));
+
+    $whereClause = sprintf("WHERE %s", implode(" OR ", $where));
+
+    // Do not sanitize the where clause; the individual elements have
+    // already been sanitized.
+    $query = sprintf("SELECT * FROM Photo %s", $whereClause);
+    if ($config->verbose) {
+      print("Query: ${query}\n");
+    }
+    $result = $this->db->query($query);
+    return $result->fetchObject();
+  }
+
   public function updatePhoto(&$photo) {
     // Is the photo already in the archive?
     $this->getPhotoId($photo);
@@ -187,7 +222,6 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
         $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating), $this->db->quote($photo->pid)));
     }
     else {
-      // Insert TODO: You are here
       $this->db->exec(sprintf("INSERT INTO Photo (filename, width, height, md5, exposure_time, rating) VALUES (%s, %s, %s, %s, %s, %s)",
       $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating)));
     }

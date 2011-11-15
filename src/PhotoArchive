@@ -27,6 +27,10 @@ Commands:
 
   remove - Removes specified photos from the archive.  They will be removed from the database and the photos will be removed.
 
+  edit <md5sum> - Edits the image that correpsonds to the specified md5 sum.  All lower level images are regenerated from the modified image.  Note that the original image is never modified as a result.  Editing the original raw image will allow you to adjust the white balance and exposure and save those changes to the full size jpeg without actually changing the original image in the archive.
+
+  revert - Reverts the image.  This regenerates the derivative images from the original.
+
 OPTIONS:
 
   -v - Turn on verbose mode
@@ -390,7 +394,6 @@ EOT;
 
         case '--full-size':
           $args->photo_size = 'full';
-          print("Detected full size argument.\n");
           ++$i;
           break;
 
@@ -436,6 +439,14 @@ EOT;
 
       case 'remove':
         $this->remove($conf, $args, $extraArgs);
+        break;
+
+      case 'edit':
+        $this->edit($conf, $args, $extraArgs);
+        break;
+
+      case 'revert':
+        $this->revert($conf, $args, $extraArgs);
         break;
 
       default:
@@ -557,20 +568,46 @@ EOT;
    *   A representation of the photo, loaded from the database.
    */
   private function getPhotoFilename($config, $args, $photo) {
-    $prefix = $config->shareDirectory;
-    $filename = $photo->web_filename;
-    if (!empty($args->photo_size)) {
-      switch ($args->photo_size) {
-        case 'full':
-          $prefix = $config->jpegsDirectory;
-          $filename = $photo->jpeg_filename;
-          break;
+    if (empty($args->photo_size)) {
+      $type = 'web';
+    }
+    else {
+      $type = $args->photo_size;
+    }
+    return $this->getFilename($config, $photo, $type);
+  }
 
-        case 'original':
-          $prefix = $config->originalsDirectory;
-          $filename = $photo->filename;
-          break;
-      }
+  /**
+   * Returns the correct path to the photo based on the command line arguments.
+   *
+   * This is currently used in the fetch method to allow the user to identify
+   * which variant of the photo is desired.
+   *
+   * @param {Config} $config
+   *   The configuration object that identifies where the database and photo
+   *   directories are.
+   * @param {StdClass} $photo
+   *   A representation of the photo, loaded from the database.
+   * @param {String} $type
+   *   Indicates the photo variant to provide the path for.  One of 'full',
+   *   'original', or 'web'.
+   */
+  private function getFilename($config, $photo, $type) {
+    switch ($type) {
+      case 'full':
+        $prefix = $config->jpegsDirectory;
+        $filename = $photo->jpeg_filename;
+        break;
+
+      case 'original':
+        $prefix = $config->originalsDirectory;
+        $filename = $photo->filename;
+        break;
+
+      case 'web':
+      default:
+        $prefix = $config->shareDirectory;
+        $filename = $photo->web_filename;
     }
     return  $prefix . "/" . $filename;
   }
@@ -600,6 +637,132 @@ EOT;
     }
     print("${count} photos matched your query.\n");
     $archiveDB->close();
+  }
+
+  public function edit($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    for ($i = 0, $len = count($extraArgs); $i < $len; $i++) {
+      $md5 = $extraArgs[$i];
+      $photo = $archiveDB->getPhotoByMD5($config, $args, $md5);
+      if (!empty($photo) && $md5 == $photo->md5) {
+        // Modifying the original.  Never actually save over the original.
+        $src = $this->getFilename($config, $photo, 'original');
+        $dst = $this->getFilename($config, $photo, 'full');
+      }
+      if (!empty($photo) && $md5 == $photo->jpeg_md5) {
+        // Modifying the full size jpeg.
+        $src = $this->getFilename($config, $photo, 'full');
+        $dst = $this->getFilename($config, $photo, 'full');
+      }
+      if (!empty($photo) && $md5 == $photo->web_md5) {
+        // Modifying the sharable size.
+        $src = $this->getFilename($config, $photo, 'web');
+        $dst = $this->getFilename($config, $photo, 'web');
+      }
+      if (!empty($src) && !empty($dst)) {
+        $this->editPhoto($config, $archiveDB, $photo, $src, $dst, $md5);
+      }
+      else {
+        print("Could not find photo with md5 of ${md5}.\n");
+      }
+    }
+  }
+
+  /**
+   * Edits the specified photo.  The changes are never saved to the original
+   * image.  Any change done to the full size jpeg is replicated onto the
+   * sharable size also.
+   *
+   * @param {Config} $config
+   *   The configuration object that identifies where the database and photo
+   *   directories are.
+   * @param {ArchiveDB} $archiveDB
+   *   The archiveDB instance.
+   * @param {StdClass} $photo
+   *   A representation of the photo, loaded from the database.
+   * @param {String} $srcfilename
+   *   The filename of the source image.
+   * @param {String} $dstFilename
+   *   The filename of the destination image.
+   */
+  public function editPhoto($config, $archiveDB, &$photo, $srcFilename, $dstFilename, $md5) {
+    $compression = 99;
+    $path_info = pathinfo($srcFilename);
+    $type = strtoupper($path_info['extension']);
+
+    switch($type) {
+      case 'NEF':
+        $command = sprintf('ufraw --out-type=jpg --compression=%d --output=%s %s', $compression, $dstFilename, $srcFilename);
+        $md5_before = md5_file($dstFilename);
+        $output = array();
+        exec($command, $output, $result);
+        // Figure out if the image was modified or not...
+        $md5_after = md5_file($dstFilename);
+        if ($md5_after == $md5_before) {
+          // The image wasn't saved, so nothing to do.
+          print("Image edit of file ${srcFilename} was aborted.\n");
+        }
+        else {
+          $this->setPhotoTimestamp($dstFilename);
+          $photo->jpeg_md5 = $md5_after;
+          $this->createWebJPEG($config, $photo, $archiveDB, TRUE);
+          $archiveDB->updatePhoto($photo);
+          print("Saved edited image ${dstFilename}.  The new md5sum is ${md5_after}\n");
+        }
+        break;
+
+      case 'JPG':
+      case 'JPEG':
+        // Copy the source image to /tmp, if the user saves changes, we will
+        // have to copy that to the destination.
+        $tmp_filename = '/tmp/' . basename($srcFilename);
+        copy($srcFilename, $tmp_filename);
+
+        $command = sprintf('gimp --no-splash %s', $tmp_filename);
+        $md5_before = md5_file($tmp_filename);
+        $output = array();
+        exec($command, $output, $result);
+        // Figure out if the image was modified or not...
+        $md5_after = md5_file($tmp_filename);
+        if ($md5_after == $md5_before) {
+          // The image wasn't saved, so nothing to do.
+          print("Image edit of file ${srcFilename} was aborted.\n");
+        }
+        else {
+          copy($tmp_filename, $dstFilename);
+          $this->setPhotoTimestamp($dstFilename);
+          if ($md5 == $photo->jpeg_md5) {
+            // The full size jpeg image was modified.
+            $photo->jpeg_md5 = $md5_after;
+            $this->createWebJPEG($config, $photo, $archiveDB, TRUE);
+            $archiveDB->updatePhoto($photo);
+          }
+          elseif ($md5 == $photo->web_md5) {
+            // The web size jpeg was modified.
+            $photo->web_md5 = $md5_after;
+            $archiveDB->updatePhoto($photo);
+          }
+          print("Saved edited image ${dstFilename}.  The new md5sum is ${md5_after}\n");}
+        break;
+    }
+  }
+
+  public function revert($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    for ($i = 0, $len = count($extraArgs); $i < $len; $i++) {
+      $md5 = $extraArgs[$i];
+      $photo = $archiveDB->getPhotoByMD5($config, $args, $md5);
+      if (!empty($photo)) {
+        $photo = $archiveDB->loadPhoto($config, $photo->pid);
+        $this->createJPEG($config, $photo, $archiveDB, TRUE);
+        $this->createWebJPEG($config, $photo, $archiveDB, TRUE);
+        $archiveDB->updatePhoto($photo);
+        print('Reverted photo ' . $photo->filename . "\n");
+      }
+      else {
+        print("Could not find photo associated with md5 ${md5}\n");
+      }
+    }
   }
 
   public function main() {
