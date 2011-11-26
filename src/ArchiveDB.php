@@ -28,12 +28,45 @@ EOT;
     $photoTagTable = <<<EOT
 CREATE TABLE PhotoTag (ptid INTEGER PRIMARY KEY, photo_id INTEGER, tag_id INTEGER);
 EOT;
+    $movieTable = <<<EOT
+      CREATE TABLE Movie (pid INTEGER PRIMARY KEY, filename TEXT UNIQUE NOT NULL, width INTEGER, height INTEGER, duration REAL, filesize INTEGER, md5 TEXT, exposure_time INTEGER, rating INTEGER DEFAULT 0);
+EOT;
+    $movieTagTable = <<<EOT
+CREATE TABLE MovieTag (ptid INTEGER PRIMARY KEY, movie_id INTEGER, tag_id INTEGER);
+EOT;
+
     $this->db->exec($photoTable);
     $this->db->exec($tagTable);
     $this->db->exec($photoTagTable);
+    $this->db->exec($movieTable);
+    $this->db->exec($movieTagTable);
   }
 
   function getPhotos($config, $args) {
+    return $this->getItems($config, $args, PHOTO);
+  }
+
+  function getMovies($config, $args) {
+    return $this->getItems($config, $args, MOVIE);
+  }
+
+  function getItems($config, $args, $type) {
+    switch($type) {
+    case PHOTO:
+      $table = 'Photo';
+      $tag_table = 'PhotoTag';
+      $tag_field = 'photo_id';
+      break;
+
+    case MOVIE:
+      $table = 'Movie';
+      $tag_table = 'MovieTag';
+      $tag_field = 'movie_id';
+      break;
+
+    default:
+      throw new Exception(sprintf('Unknown type: "%s"', $type));
+    }
     // Construct the where clause:
     $where = array();
     if (isset($args->from)) {
@@ -44,7 +77,7 @@ EOT;
     if (isset($args->to)) {
       // Convert to Unix timestamp.
       $date = new DateTime($args->to);
-      $where[] = sprintf("exposure_time <= %s", $this->db->quote($date->format('U')));
+      $where[] = sprintf("exposure_time <= %s", $this->db->quote($date->format('U') + (24*60*60)));
     }
     if (isset($args->rating)) {
       $matches = array();
@@ -63,7 +96,7 @@ EOT;
       // Pull out the tags...
       $tags = explode(',', $args->tag);
       for ($tagIndex = 0, $tagLen = count($tags); $tagIndex < $tagLen; $tagIndex++) {
-	$where[] = sprintf("Photo.pid IN (SELECT photo_id FROM PhotoTag JOIN Tag WHERE PhotoTag.tag_id = Tag.tid AND Tag.name = %s)", $this->db->quote(trim($tags[$tagIndex])));
+	$where[] = sprintf("$table.pid IN (SELECT $tag_field FROM $tag_table JOIN Tag WHERE $tag_table.tag_id = Tag.tid AND Tag.name = %s)", $this->db->quote(trim($tags[$tagIndex])));
       }
     }
     if (count($where) > 0) {
@@ -75,7 +108,7 @@ EOT;
 
     // Do not sanitize the where clause; the individual elements have
     // already been sanitized.
-    $query = sprintf("SELECT * FROM Photo %s", $whereClause);
+    $query = sprintf("SELECT * FROM $table %s", $whereClause);
     if ($config->verbose) {
       print("Query: ${query}\n");
     }
@@ -138,6 +171,26 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
     $this->savePhotoTags($photo);
   }
 
+  public function updateMovie(&$movie) {
+    // Is the movie already in the archive?
+    $this->getMovieId($movie);
+    if (isset($movie->pid)) {
+      $update = sprintf("UPDATE Movie SET filename = %s, width = %s, height = %s, md5 = %s, exposure_time = %s, rating = %s WHERE pid = %s",
+$this->db->quote($movie->filename), $this->db->quote($movie->width), $this->db->quote($movie->height), $this->db->quote($movie->md5), $this->db->quote($movie->exposure_time), $this->db->quote($movie->rating), $this->db->quote($movie->pid));
+      $this->db->exec($update);
+    }
+    else {
+      // Need a new row.
+      $insert = sprintf("INSERT INTO Movie (filename, width, height, md5, exposure_time, rating) VALUES (%s, %s, %s, %s, %s, %s)",
+        $this->db->quote($movie->filename), $this->db->quote($movie->width), $this->db->quote($movie->height), $this->db->quote($movie->md5), $this->db->quote($movie->exposure_time), $this->db->quote($movie->rating));
+      $this->db->exec($insert);
+    }
+
+    // Set the movie id.
+    $this->getMovieId($movie);
+    $this->saveMovieTags($movie);
+  }
+
   public function createTags($tags) {
     if (empty($tags) || count($tags) == 0) {
       return;
@@ -160,24 +213,45 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
   }
 
   private function savePhotoTags(&$photo) {
-    if (empty($photo->tags) || count($photo->tags) == 0) {
+    return $this->saveTags($photo, PHOTO);
+  }
+
+  private function saveMovieTags(&$movie) {
+    return $this->saveTags($movie, MOVIE);
+  }
+
+  private function saveTags(&$item, $type = PHOTO) {
+    if (empty($item->tags) || count($item->tags) == 0) {
       return;
     }
-    $this->createTags($photo->tags);
+    $this->createTags($item->tags);
     $tagQuery = "SELECT * FROM Tag WHERE name = %s";
-    $photoQuery = "SELECT * FROM PhotoTag WHERE photo_id = %s AND tag_id = %s";
-    for ($i = 0, $len = count($photo->tags); $i < $len; $i++) {
-      $tag = $this->db->query(sprintf($tagQuery, $this->db->quote($photo->tags[$i])));
+    switch ($type) {
+    case PHOTO:
+      $table = 'PhotoTag';
+      $id_field = 'photo_id';
+      break;
+    case MOVIE:
+      $table = 'MovieTag';
+      $id_field = 'movie_id';
+      break;
+    default:
+      throw new Exception(sprintf('Unknown type passed to saveTags: %s', $type));
+    }
+    $query = "SELECT * FROM $table WHERE $id_field = %s AND tag_id = %s";
+    for ($i = 0, $len = count($item->tags); $i < $len; $i++) {
+      $tag = $this->db->query(sprintf($tagQuery, $this->db->quote($item->tags[$i])));
+      $id = $item->pid;
       if (!empty($tag)) {
 	$data = $tag->fetchObject();
-	if ($data && $data->name == $photo->tags[$i]) {
+	if ($data && $data->name == $item->tags[$i]) {
 	  // Got the tag id.  Does the relationship already exist?
-	  $relationship = $this->db->query(sprintf($photoQuery, $this->db->quote($photo->pid), $this->db->quote($data->tid)));
+	  $relationship = $this->db->query(sprintf($query, $this->db->quote($id), $this->db->quote($data->tid)));
 	  if ($relationship && $r = $relationship->fetchObject()) {
 	    // It already exists.
 	  }
 	  else {
-	    $insert = sprintf("INSERT INTO PhotoTag (photo_id, tag_id) VALUES (%s, %s)", $this->db->quote($photo->pid), $this->db->quote($data->tid));
+	    $insert = sprintf("INSERT INTO $table ($id_field, tag_id) VALUES (%s, %s)", $this->db->quote($id), $this->db->quote($data->tid));
 	    $this->db->exec($insert);
 	  }
 	}
@@ -204,7 +278,10 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
   public function loadPhoto($config, $photoId) {
     $photoQuery = $this->db->query(sprintf("SELECT * FROM Photo WHERE pid = %s", $this->db->quote($photoId)));
     $photo = $photoQuery->fetchObject();
-    $photo->tags = $this->getTags($photoId);
+    if (empty($photo)) {
+      throw new Exception (sprintf('Photo with photo id "%s" not found.', $photoId));
+    }
+    $photo->tags = $this->getTags($photoId, PHOTO);
     $this->addPaths($config, $photo);
 
     return $photo;
@@ -241,6 +318,17 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
     }
   }
 
+  private function getMovieId(&$movie) {
+    if (!isset($movie->pid)) {
+      $query = $this->db->query(sprintf("SELECT pid FROM Movie WHERE filename = %s", $this->db->quote($movie->filename)));
+      if ($query && $data = $query->fetchObject()) {
+	if (isset($data->pid)) {
+	  $movie->pid = $data->pid;
+	}
+      }
+    }
+  }
+
   private function addPaths($config, &$photo) {
     $filename = pathinfo($photo->filename, PATHINFO_FILENAME);
     $path = dirname($photo->filename);
@@ -249,10 +337,10 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
     $photo->share_filename = $config->shareDirectory . "${path}/${filename}.JPG";
   }
 
-  public function getTags($photoId) {
+  public function getTags($photoId, $type = PHOTO) {
     // TODO: Could I use fetchColumn to make this more efficient?
     $tags = array();
-    $tagQuery = $this->db->query(sprintf("SELECT photo_id, tag_id, name FROM PhotoTag join Tag on tid = tag_id WHERE photo_id = %s", $this->db->quote($photoId)));
+    $tagQuery = $this->db->query(sprintf("SELECT photo_id, tag_id, name FROM PhotoTag join Tag on tid = tag_id WHERE photo_id = %s AND type = %s", $this->db->quote($photoId), $this->db->quote($type)));
     while ($tag = $tagQuery->fetchObject()) {
       $tags[] = $tag->name;
     }

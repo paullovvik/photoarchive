@@ -8,7 +8,7 @@ class Config {
   private $config = NULL;
 
   public function __construct($configPath = NULL) {
-    global $picture_directory, $originals_directory, $jpegs_directory, $share_directory, $app_database, $originals_database;
+    global $picture_directory, $originals_directory, $jpegs_directory, $share_directory, $movie_directory, $app_database, $originals_database;
     if (!empty($configPath)) {
       $this->configPath = $configPath;
     }
@@ -33,7 +33,7 @@ class Config {
    */
   public function getConfiguration() {
     if ($this->config === NULL) {
-      global $picture_directory, $originals_directory, $jpegs_directory, $share_directory, $app_database, $originals_database, $share_resolution, $quality;
+      global $picture_directory, $originals_directory, $jpegs_directory, $share_directory, $movie_directory, $app_database, $originals_database, $share_resolution, $quality;
       if (empty($share_resolution)) {
 	$share_resolution = '1920x1080';
       }
@@ -45,6 +45,7 @@ class Config {
       $obj->originalsDirectory = $originals_directory;
       $obj->jpegsDirectory = $jpegs_directory;
       $obj->shareDirectory = $share_directory;
+      $obj->movieDirectory = $movie_directory;
       $obj->appDB = $app_database;
       $obj->originalsDB = $originals_database;
       $obj->shareResolution = $share_resolution;

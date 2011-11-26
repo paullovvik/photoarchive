@@ -1,6 +1,9 @@
 #!/usr/bin/php
 <?php
 
+define('PHOTO', 'photo');
+define('MOVIE', 'movie');
+
 class PhotoArchive {
 
   public function help() {
@@ -11,7 +14,9 @@ Usage:  PhotoArchive COMMAND [OPTION...]
 Commands:
   archive - Archives the set of images from the picture_directory identified in the configuration file to the originals_directory.  Information will be added to the originals database for all images that are archived.
 
-  archive-info - Prints information about the specified photos within the orgininals archive.
+  archive-movies - Archives the set of movies from the picture_directory identified in the configuration file to the movies_directory.  Information will be added to the database for all movies that are archived.
+
+  archive-info - Prints information about the specified photos within the orgininals archive.  Pass the photo id of each image you are interested in as arguments.
 
   help - Prints a help message
 
@@ -19,11 +24,15 @@ Commands:
 
   list - Prints information about the specified photos within the photo database.
 
+  list-movies - Prints information about the specified movies within the photo database.
+
   tags - Prints tag information about the specified photos.
 
   fetch - Fetches specified photos.  By default the sharable size photo is fetched.
          --full-size - Fetch the full size JPEG image instead.
          --original-size - Fetch the original image instead.
+
+  fetch-movies - Fetches specified movies.
 
   remove - Removes specified photos from the archive.  They will be removed from the database and the photos will be removed.
 
@@ -68,16 +77,40 @@ EOT;
     $out[] = "Dimensions: " . $photo->width . 'x' . $photo->height;
     $out[] = "MD5: " . $photo->md5;
     if (isset($photo->id)) {
-      $tags = $db->getTags($photo->id);
+      $tags = $db->getTags($photo->id, PHOTO);
     }
     else if (isset($photo->pid)) {
-      $tags = $db->getTags($photo->pid);
+      $tags = $db->getTags($photo->pid, PHOTO);
     }
     if (count($tags) > 0) {
       $out[] = "Tags: " . implode(', ', $tags);
     }
     if (isset($photo->modified)) {
       $out[] = "Modified: " . ($photo->modified ? "TRUE" : "FALSE");
+    }
+    print(implode("\n", $out) . "\n");
+  }
+
+  public function printMovieInfo($movie, $config, $db) {
+    if (isset($movie->id)) {
+      $out[] = "ID: " . $movie->id;
+    }
+    else if (isset($movie->mid)) {
+      $out[] = "ID: " . $movie->id;
+    }
+    $out[] = "Filename: " . $movie->filename;
+    $out[] = "Rating: " . $movie->rating;
+    $out[] = "Dimensions: " . $movie->width . 'x' . $movie->height;
+    $out[] = "MD5: " . $movie->md5;
+
+    if (isset($movie->id)) {
+      $tags = $db->getTags($movie->id, MOVIE);
+    }
+    else if (isset($movie->mid)) {
+      $tags = $db->getTags($movie->mid, MOVIE);
+    }
+    if (count($tags) > 0) {
+      $out[] = "Tags: " . implode(', ', $tags);
     }
     print(implode("\n", $out) . "\n");
   }
@@ -99,7 +132,7 @@ EOT;
     $archivedPhoto->modified = FALSE;
 
     // Get the photo tags...
-    $tags = $photoDB->getTags($photo->id);
+    $tags = $photoDB->getTags($photo->id, PHOTO);
     $archivedPhoto->tags = $tags;
 
     if (!$overwrite && file_exists($filename)) {
@@ -124,6 +157,48 @@ EOT;
     $this->createJPEG($config, $archivedPhoto, $archiveDB, $overwrite);
     $this->createWebJPEG($config, $archivedPhoto, $archiveDB, $overwrite);
     $archiveDB->updatePhoto($archivedPhoto);
+  }
+
+  /**
+   * Causes the specfied movie to be archived.
+   */
+  private function archiveMovie($config, $movie, $photoDB, $archiveDB, $overwrite = FALSE) {
+    $archivedMovie = new StdClass();
+    $escapedPath = preg_replace('/\//', '\\\/', $config->pictureDirectory);
+    $partialPath = preg_replace('/^' . $escapedPath . '/', '', $movie->filename);;
+    $archivedMovie->filename = $partialPath;
+    $filename = $config->movieDirectory . $partialPath;
+
+    $archivedMovie->width = $movie->width;
+    $archivedMovie->height = $movie->height;
+    $archivedMovie->exposure_time = $movie->exposure_time;
+    $archivedMovie->rating = $movie->rating;
+    $archivedMovie->modified = FALSE;
+
+    // Get the photo tags...
+    $tags = $photoDB->getTags($movie->id, MOVIE);
+    $archivedMovie->tags = $tags;
+
+    if (!$overwrite && file_exists($filename)) {
+      // Do nothing - the file already exists.
+      print("Skipping file $filename\n");
+    }
+    else {
+      print("Copying file $filename\n");
+      // Create the directory if needed...
+      $dir = dirname($filename);
+      if (!file_exists($dir)) {
+        mkdir($dir, 0755, TRUE);
+      }
+
+      if (!copy($movie->filename, $filename)) {
+        throw new Exception("Failed to copy " . $movie->filename . " to ${filename}");
+      }
+      touch($filename, $movie->exposure_time);
+    }
+
+    $archivedMovie->md5 = md5_file($filename);
+    $archiveDB->updateMovie($archivedMovie);
   }
 
   private function createJPEG($config, &$photo, $db, $overwrite = FALSE) {
@@ -429,12 +504,24 @@ EOT;
         $this->listPhotos($conf, $args, $extraArgs);
         break;
 
+      case 'list-movies':
+        $this->listMovies($conf, $args, $extraArgs);
+        break;
+
       case 'archive':
         $this->archive($conf, $args, $extraArgs);
         break;
 
+      case 'archive-movies':
+        $this->archiveMovies($conf, $args, $extraArgs);
+        break;
+
       case 'fetch':
         $this->fetch($conf, $args, $extraArgs);
+        break;
+
+      case 'fetch-movies':
+        $this->fetchMovies($conf, $args, $extraArgs);
         break;
 
       case 'remove':
@@ -458,7 +545,7 @@ EOT;
     $photoDB = new PhotoDB($config);
     for ($i = 0, $len = count($extraArgs); $i < $len; $i++) {
       $photoId = $extraArgs[$i];
-      $tags = $photoDB->getTags($photoId);
+      $tags = $photoDB->getTags($photoId, PHOTO);
       print("${photoId}: " . implode(', ', $tags) . "\n");
     }
     $photoDB->close();
@@ -496,6 +583,23 @@ EOT;
     $db->close();
   }
 
+  public function listMovies($config, $args, $extraArgs) {
+    if (isset($args->db) && $args->db == 'original') {
+      $db = new ArchiveDB($config);
+    }
+    else {
+      $db = new PhotoDB($config);
+    }
+    $movies = $db->getMovies($config, $args);
+    $count = 0;
+    while ($movie = $movies->fetchObject()) {
+      $this->printMovieInfo($movie, $config, $db);
+      $count++;
+    }
+    print("${count} movies.\n");
+    $db->close();
+  }
+
   public function tags($config, $args, $extraArgs) {
     $photoDB = new PhotoDB($config);
     $tags = $photoDB->getAllTags();
@@ -512,6 +616,19 @@ EOT;
       $count++;
     }
     print("${count} photos matched your query.\n");
+    $photoDB->close();
+  }
+
+  public function archiveMovies($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    $photoDB = new PhotoDB($config);
+    $movies = $photoDB->getMovies($config, $args);
+    $count = 0;
+    while ($movie = $movies->fetchObject()) {
+      $this->archiveMovie($config, $movie, $photoDB, $archiveDB);
+      $count++;
+    }
+    print("${count} movies matched your query.\n");
     $photoDB->close();
   }
 
@@ -549,6 +666,43 @@ EOT;
       $count++;
     }
     print("${count} photos matched your query.\n");
+    $archiveDB->close();
+  }
+
+  public function fetchMovies($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    $movies = $archiveDB->getMovies($config, $args);
+    $count = 0;
+    switch (count($extraArgs)) {
+      case 0:
+        $dest = getcwd();
+        break;
+
+      case 1:
+        $dest = $extraArgs[0];
+        break;
+
+      default:
+        throw new Exception("Destination directory is not specified.");
+    }
+    if (!is_dir($dest)) {
+      throw new Exception("Destination directory ${dest} does not exist or is not a directory.");
+    }
+
+    $prefix = $config->movieDirectory;
+    while ($movie = $movies->fetchObject()) {
+      $from = $config->movieDirectory . '/' . $movie->filename;
+      $to = $dest . "/" . basename($from);
+      if (!@copy($from, $to)) {
+        print("Failed to copy ${from} to ${to}.\n");
+      }
+      else {
+        touch($to, $movie->exposure_time);
+        print("Copied ${from} to ${to}.\n");
+      }
+      $count++;
+    }
+    print("${count} movies matched your query.\n");
     $archiveDB->close();
   }
 
@@ -632,6 +786,7 @@ EOT;
       if (!@unlink($share)) {
         print("Failed to delete ${share}.\n");
       }
+      print('Deleting photo ' . $photo->filename . "\n");
       $archiveDB->remove($config, $photo);
       $count++;
     }
@@ -785,7 +940,7 @@ EOT;
     if (isset($options['p'])) {
       $photoId = $options['p'];
       $photoDB = new PhotoDB($config);
-      $tags = $photoDB->getTags($photoId);
+      $tags = $photoDB->getTags($photoId, PHOTO);
       print(implode(', ', $tags) . "\n");
       $photoDB->close();
       die();

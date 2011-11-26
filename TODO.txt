@@ -1,11 +1,7 @@
-Deal with movies
-
-----
+Tag manipulation:
 PhotoArchive add-tag <list> newtag
 Adds the specified tag to the list of photos
 
 PhotoArchive remove-tag <list> oldtag
 
 PhotoArchive set-rating <list> rating
-
-All of these update the original only if it is a JPEG, they update the full size JPEG and the web size jpeg as well as the database.
