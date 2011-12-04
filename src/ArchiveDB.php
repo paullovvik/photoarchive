@@ -379,6 +379,31 @@ $this->db->quote($movie->filename), $this->db->quote($movie->width), $this->db->
     $this->savePhotoTags($photo);
   }
 
+  public function replacePhoto(&$photo, $filename) {
+    list($width, $height) = PhotoArchive::getPhotoDimensions($filename);
+    $md5 = md5_file($filename);
+
+    if ((abs($width - $photo->width) / $width) < 0.01) {
+      // The width is less than 1% different.  Use the photo width.
+      $width = $photo->width;
+    }
+
+    if ((abs($height - $photo->height) / $height) < 0.01) {
+      // The height is less than 1% different.  Use the photo height.
+      $height = $photo->height;
+    }
+    $new_filename = dirname($photo->filename) . '/' . basename($filename);
+    $update = sprintf("UPDATE Photo set filename = %s, width = %s, height = %s, md5 = %s WHERE pid = %s",
+        $this->db->quote($new_filename),
+              $this->db->quote($width), $this->db->quote($height), $this->db->quote($md5), $this->db->quote($photo->pid));
+    $this->db->exec($update);
+
+    $photo->filename = $new_filename;
+    $photo->width = $width;
+    $photo->height = $height;
+    $photo->md5 = $md5;
+  }
+
   private function getPhotoId(&$photo) {
     if (!isset($photo->pid)) {
       $query = $this->db->query(sprintf("SELECT pid FROM Photo WHERE filename = %s", $this->db->quote($photo->filename)));
@@ -412,7 +437,17 @@ $this->db->quote($movie->filename), $this->db->quote($movie->width), $this->db->
   public function getTags($photoId, $type = PHOTO) {
     // TODO: Could I use fetchColumn to make this more efficient?
     $tags = array();
-    $tagQuery = $this->db->query(sprintf("SELECT photo_id, tag_id, name FROM PhotoTag join Tag on tid = tag_id WHERE photo_id = %s AND type = %s", $this->db->quote($photoId), $this->db->quote($type)));
+    switch ($type) {
+      case PHOTO:
+        $id_name = 'photo_id';
+        $table = 'PhotoTag';
+        break;
+      case MOVIE:
+        $id_name = 'movie_id';
+        $table = 'MovieTag';
+        break;
+    }
+    $tagQuery = $this->db->query(sprintf("SELECT $id_name, tag_id, name FROM $table join Tag on tid = tag_id WHERE $id_name = %s", $this->db->quote($photoId), $this->db->quote($type)));
     while ($tag = $tagQuery->fetchObject()) {
       $tags[] = $tag->name;
     }

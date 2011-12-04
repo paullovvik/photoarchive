@@ -20,6 +20,8 @@ Commands:
 
   categorize - Takes a directory full of images and categorizes them based on whether they are already known to the system (duplicates/), they are known but the directory contains a higher resolution image (replace/), or whether they are unknown to the database (new/).
 
+  replace - Takes a photo filename, finds the closest match, and replaces the photo in the archive with the new one.  This only works if the new one actually matches one of the photos in the archive and is larger than the one in the archive.
+
   help - Prints a help message
 
   info - Prints information about the specified photos within the photo database.
@@ -502,6 +504,10 @@ EOT;
         $this->categorize($conf, $args, $extraArgs);
         break;
 
+      case 'replace':
+        $this->replace($conf, $args, $extraArgs);
+        break;
+
       case 'tags':
         $this->tags($conf, $args, $extraArgs);
         break;
@@ -617,6 +623,49 @@ EOT;
         // Put into the 'new/' directory
         print("Photo ${filename} does not exist in the database.\n");
         rename($filename, './new/' . basename($filename));
+      }
+    }
+    $archiveDB->close();
+  }
+
+  public function replace($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    for ($i = 0, $len = count($extraArgs); $i < $len; $i++) {
+      $filename = $extraArgs[$i];
+      $photo = $archiveDB->findClosestPhotoMatch($config, $args, $filename);
+      if (!empty($photo)) {
+        // Is this an exact match?  Compare the file sizes.
+        $filesize = filesize($filename);
+        $photo_filename = $this->getFilename($config, $photo, 'original');
+        if (filesize($filename) > filesize($photo_filename)) {
+          // Put into the 'replace/' directory
+          print("Replacing photo ${photo_filename} with ${filename} in the archive.\n");
+          $orig_filename = $this->getFilename($config, $photo, 'original');
+          $new_filename = dirname($orig_filename) . '/' . basename($filename);
+
+          // Move the file into the /tmp directory.
+          $tmp_file = '/tmp/' . basename($orig_filename);
+          rename($orig_filename, $tmp_file);
+
+          // Copy the file into the archive.
+          copy($filename, $new_filename);
+          touch($new_filename, $photo->exposure_time);
+
+          // Update the database.
+          $archiveDB->replacePhoto($photo, $filename);
+          print("New md5 is " . $photo->md5 . "\n");
+
+          // Update the derivative images.
+          $this->revert($config, $args, array($photo->md5));
+        }
+        else {
+          // Put into the 'duplicates/' directory.
+          print("Not replacing photo ${filename} because it already exists.\n");
+        }
+      }
+      else {
+        // Put into the 'new/' directory
+        print("Photo ${filename} does not exist in the database.\n");
       }
     }
     $archiveDB->close();
@@ -819,7 +868,36 @@ EOT;
         $prefix = $config->shareDirectory;
         $filename = $photo->web_filename;
     }
-    return  $prefix . "/" . $filename;
+    return  str_replace('//', '/', $prefix . "/" . $filename);
+  }
+
+  public static function getAllExifData($filename) {
+    $exif = array();
+    $command = sprintf('exiv2 print -p a %s', escapeshellarg($filename));
+    $output = array();
+    exec($command, $output, $result);
+    for ($i = 0, $len = count($output); $i < $len; $i++) {
+      $line = $output[$i];
+      $name = substr($line, 0, strpos($line, ' '));
+      $line = trim(substr($line, strlen($name)));
+      $type = substr($line, 0, strpos($line, ' '));
+      $line = trim(substr($line, strlen($type)));
+      $size = substr($line, 0, strpos($line, ' '));
+      $value = trim(substr($line, strlen($size)));
+      $exif[$name] = $value;
+    }
+    return $exif;
+  }
+
+  public static function getPhotoDimensions($filename) {
+    list($width, $height) = getimagesize($filename);
+    if ($width < 300 && $height < 300) {
+      // This is probably a thumbnail.
+      $exif = PhotoArchive::getAllExifData($filename);
+      $width = $exif['Exif.SubImage2.ImageWidth'];
+      $height = $exif['Exif.SubImage2.ImageLength'];
+    }
+    return (array($width, $height));
   }
 
   public function remove($config, $args, $extraArgs) {

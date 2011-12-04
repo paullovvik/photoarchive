@@ -1,6 +1,3 @@
-PhotoArchive replace <imagefile> - Takes the image file, finds the file it should replace based on timestamp, verifies with the user, then replaces the image, updates the db with the filename, md5sum, width, height, etc.
-
-------------------------------------------------------------------------------
 Tag manipulation:
 PhotoArchive add-tag <list> newtag
 Adds the specified tag to the list of photos
