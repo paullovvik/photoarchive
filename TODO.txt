@@ -1,3 +1,25 @@
+Need to have a way of detecting duplicates.
+Scenario:  I have a directory of images that I want to consider adding to my collection.  I run something like:
+
+PhotoArchive dedupe <directory>
+
+It looks at every file in the directory, checks its md5sum against the database and if it is there identifies the duplicate photo and moves it to the 'duplicates' directory.
+
+For the remainder, it will extract the time the photo was taken and compare that to the database, again moving if needed.
+
+If a match is detected we should probably compare the size of the images (not required for the md5sum check).  We would prefer the larger size for the original image.  These images would be placed into the 'replace/' directory.
+
+duplicates/
+replace/
+new/
+
+The replace/ directory would contain duplicates in which the database has a reference to a smaller picture for its original that the duplicate.
+
+At the end of this operation all of the images would still exist.  The new images could simply be imported.  The replace/ directory would probably need a new command (replace-image maybe) that would allow me to simply overwrite the original file with the new original and regenerate the derivative images.  All tags and ratings would be maintained.
+
+PhotoArchive replace <imagefile> - Takes the image file, finds the file it should replace based on timestamp, verifies with the user, then replaces the image, updates the db with the filename, md5sum, width, height, etc.
+
+------------------------------------------------------------------------------
 Tag manipulation:
 PhotoArchive add-tag <list> newtag
 Adds the specified tag to the list of photos
