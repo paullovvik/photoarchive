@@ -151,6 +151,37 @@ EOT;
     return $result->fetchObject();
   }
 
+  /**
+   * Retrieves a photo corresponding to the specified file timestamp.
+   *
+   * @param {Config} $config
+   *   The configuration object that identifies where the database and photo
+   *   directories are.
+   * @param {StdClass} $args
+   *   The processed command line arguments that identify which of the photo
+   *   variants the user is interested in.
+   * @param {String} $timestamp
+   *   The timestamp of the desired photo.
+   * @return {Photo}
+   *   The matching photo.
+   */
+  function getPhotoByTimestamp($config, $args, $timestamp) {
+    // Construct the where clause:
+    $where = array();
+
+    $where[] = sprintf("exposure_time = %s", $this->db->quote($timestamp));
+    $whereClause = sprintf("WHERE %s", implode(" OR ", $where));
+
+    // Do not sanitize the where clause; the individual elements have
+    // already been sanitized.
+    $query = sprintf("SELECT * FROM Photo %s", $whereClause);
+    if ($config->verbose) {
+      print("Query: ${query}\n");
+    }
+    $result = $this->db->query($query);
+    return $result->fetchObject();
+  }
+
   public function updatePhoto(&$photo) {
     // Is the photo already in the archive?
     $this->getPhotoId($photo);
@@ -265,6 +296,47 @@ $this->db->quote($movie->filename), $this->db->quote($movie->width), $this->db->
 
   public function loadOriginalPhoto($photoId) {
 
+  }
+
+  /**
+   * Finds the photo in the archive that most closely matches the specified photo.
+   * @param {Config} $config
+   *   The configuration object that identifies where the database and photo
+   *   directories are.
+   * @param {StdClass} $args
+   *   The processed command line arguments that identify which of the photo
+   *   variants the user is interested in.
+   * @param {String} $filename
+   *   The name of the file containing the photo to match.
+   *
+   * @return {StdObj}
+   *   The matching photo, if found.
+   */
+  public function findClosestPhotoMatch($config, $args, $filename) {
+    $md5 = md5_file($filename);
+    $photo = $this->getPhotoByMD5($config, $args, $md5);
+    if (!empty($photo)) {
+      // Good match.
+      return $photo;
+    }
+
+    // Look at the timestamp and name.
+    $exif = @exif_read_data($filename, 0, true);
+    $timestamp = strtotime($exif['IFD0']['DateTimeOriginal']);
+    $pathinfo = pathinfo($filename);
+    $name = $pathinfo['filename'];
+    $photo = $this->getPhotoByTimestamp($config, $args, $timestamp);
+    if (!empty($photo)) {
+      // The timestamp is not unique because it is possible to shoot
+      // several pictures per second.  Verify by filename as well.
+      $photo_pathinfo = pathinfo($photo->filename);
+      $photo_name = $photo_pathinfo['filename'];
+      if ($photo_name == $name) {
+	// The name and timestamp match.  This is a good match.
+	return $photo;
+      }
+    }
+    return null;
   }
 
   public function loadJpegPhoto($photoId) {

@@ -18,6 +18,8 @@ Commands:
 
   archive-info - Prints information about the specified photos within the orgininals archive.  Pass the photo id of each image you are interested in as arguments.
 
+  categorize - Takes a directory full of images and categorizes them based on whether they are already known to the system (duplicates/), they are known but the directory contains a higher resolution image (replace/), or whether they are unknown to the database (new/).
+
   help - Prints a help message
 
   info - Prints information about the specified photos within the photo database.
@@ -496,6 +498,10 @@ EOT;
         $this->archiveInfo($conf, $args, $extraArgs);
         break;
 
+      case 'categorize':
+        $this->categorize($conf, $args, $extraArgs);
+        break;
+
       case 'tags':
         $this->tags($conf, $args, $extraArgs);
         break;
@@ -562,6 +568,56 @@ EOT;
       print("Photo ${photoId}: ");
       print_r($photo);
       print("\n");
+    }
+    $archiveDB->close();
+  }
+
+  /**
+   * Categorizes the photos specified on the command line by filename into 3 buckets.
+   *
+   * new: These photos are not currently in the photo archive.
+   * duplicates: These photos are already in the photo archive
+   * replace: These photos are already in the archive, but the archive contains a smaller version of the file.  It is recommended that these photos be replaced in the archive.
+   *
+   * @param {Config} $config
+   *   The configuration object that identifies where the database and photo
+   *   directories are.
+   * @param {StdClass} $args
+   *   The processed command line arguments that identify which of the photo
+   *   variants the user is interested in.
+   * @param {Array} $extraArgs
+   *   Additional command line arguments that do not constitute PhotoArchive
+   *   options.
+   */
+  public function categorize($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    mkdir('./new', 0755, TRUE);
+    mkdir('./duplicates', 0755, TRUE);
+    mkdir('./replace', 0755, TRUE);
+
+    for ($i = 0, $len = count($extraArgs); $i < $len; $i++) {
+      $filename = $extraArgs[$i];
+      $photo = $archiveDB->findClosestPhotoMatch($config, $args, $filename);
+      if (!empty($photo)) {
+        // Is this an exact match?  Compare the file sizes.
+        $filesize = filesize($filename);
+        $photo_filename = $this->getFilename($config, $photo, 'original');
+        if (filesize($filename) > filesize($photo_filename)) {
+          // Put into the 'replace/' directory
+          print("Photo ${filename} should replace ${photo_filename} in the archive.\n");
+          rename($filename, './replace/' . basename($filename));
+        }
+        else {
+          // Put into the 'duplicates/' directory.
+          print("Photo ${filename} already exists.\n");
+          rename($filename, './duplicates/' . basename($filename));
+        }
+      }
+      else {
+        // Put into the 'new/' directory
+        print("Photo ${filename} does not exist in the database.\n");
+        rename($filename, './new/' . basename($filename));
+      }
     }
     $archiveDB->close();
   }
