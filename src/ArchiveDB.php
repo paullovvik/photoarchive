@@ -7,9 +7,9 @@ class ArchiveDB {
       if (!file_exists($config->originalsDB)) {
 	$createTables = TRUE;
       }
-      $dbConnect = sprintf('sqlite:%s', $config->originalsDB);
-      $this->db = new PDO($dbConnect);
-      if ($createTables) {
+      $dbConnect = sprintf('mysql:host=%s;dbname=%s', $config->dbhost, $config->originalsDB);
+      $this->db = new PDO($dbConnect, $config->dbuser, $config->dbpass);
+      if (!$this->tablesExist()) {
 	$this->createTables();
       }
     }
@@ -18,21 +18,34 @@ class ArchiveDB {
     }
   }
 
+  private function tablesExist() {
+    // If this throws an error the tables do not exist.
+    try {
+      $result = $this->db->query('SELECT 1 FROM Photo LIMIT 1');
+      if (!empty($result)) {
+	return TRUE;
+      }
+    }
+    catch (Exception $e) {
+    }
+    return FALSE;
+  }
+
   private function createTables() {
     $photoTable = <<<EOT
-CREATE TABLE Photo (pid INTEGER PRIMARY KEY, filename TEXT UNIQUE NOT NULL, jpeg_filename TEXT UNIQUE, web_filename TEXT UNIQUE, width INTEGER, height INTEGER, md5 TEXT, jpeg_md5 TEXT, web_md5 TEXT, exposure_time INTEGER, rating INTEGER DEFAULT 0, modified INTEGER DEFAULT 0);
+      CREATE TABLE Photo (pid INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, filename varchar(256) UNIQUE NOT NULL, jpeg_filename varchar(256) UNIQUE, web_filename varchar(256) UNIQUE, width INT UNSIGNED, height INT UNSIGNED, md5 varchar(64), jpeg_md5 varchar(64), web_md5 varchar(64), exposure_time INT UNSIGNED, rating INT UNSIGNED DEFAULT 0, modified INT UNSIGNED DEFAULT 0);
 EOT;
     $tagTable = <<<EOT
-CREATE TABLE Tag (tid INTEGER PRIMARY KEY, name TEXT UNIQUE NOT NULL);
+      CREATE TABLE Tag (tid INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, name varchar(64) UNIQUE NOT NULL);
 EOT;
     $photoTagTable = <<<EOT
-CREATE TABLE PhotoTag (ptid INTEGER PRIMARY KEY, photo_id INTEGER, tag_id INTEGER);
+CREATE TABLE PhotoTag (ptid INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, photo_id INT UNSIGNED, tag_id INT UNSIGNED);
 EOT;
     $movieTable = <<<EOT
-      CREATE TABLE Movie (pid INTEGER PRIMARY KEY, filename TEXT UNIQUE NOT NULL, width INTEGER, height INTEGER, duration REAL, filesize INTEGER, md5 TEXT, exposure_time INTEGER, rating INTEGER DEFAULT 0);
+      CREATE TABLE Movie (pid INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, filename varchar(256) UNIQUE NOT NULL, width INT UNSIGNED, height INT UNSIGNED, duration float, filesize INT UNSIGNED, md5 varchar(64), exposure_time INT UNSIGNED, rating INT UNSIGNED DEFAULT 0);
 EOT;
     $movieTagTable = <<<EOT
-CREATE TABLE MovieTag (ptid INTEGER PRIMARY KEY, movie_id INTEGER, tag_id INTEGER);
+CREATE TABLE MovieTag (ptid INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, movie_id INT UNSIGNED, tag_id INT UNSIGNED);
 EOT;
 
     $this->db->exec($photoTable);
