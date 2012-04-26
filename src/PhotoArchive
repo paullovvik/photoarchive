@@ -900,6 +900,8 @@ EOT;
   }
 
   public function remove($config, $args, $extraArgs) {
+    print("The remove command has been disabled because it is dangerous.\n");
+    exit(0);
     $archiveDB = new ArchiveDB($config);
     $photos = $archiveDB->getPhotos($config, $args);
     $count = 0;
