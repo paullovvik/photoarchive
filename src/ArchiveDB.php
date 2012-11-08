@@ -109,7 +109,7 @@ EOT;
       // Pull out the tags...
       $tags = explode(',', $args->tag);
       for ($tagIndex = 0, $tagLen = count($tags); $tagIndex < $tagLen; $tagIndex++) {
-	$where[] = sprintf("$table.pid IN (SELECT $tag_field FROM $tag_table JOIN Tag WHERE $tag_table.tag_id = Tag.tid AND Tag.name = %s)", $this->db->quote(trim($tags[$tagIndex])));
+	$where[] = sprintf("$table.pid IN (SELECT $tag_field FROM $tag_table INNER JOIN Tag ON $tag_table.tag_id = Tag.tid WHERE Tag.name = %s)", $this->db->quote(trim($tags[$tagIndex])));
       }
     }
     if (count($where) > 0) {

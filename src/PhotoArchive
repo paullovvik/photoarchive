@@ -249,7 +249,7 @@ EOT;
             if ($config->verbose) {
               print("converting " . $original . " to ${jpeg}\n");
             }
-            $command = sprintf("ufraw-batch --compression=99 --wb=auto --exposure=auto --base-curve=camera --overwrite --out-type=jpeg --output=%s %s 2>&1",
+            $command = sprintf("ufraw-batch --compression=99 --wb=camera --exposure=0.0 --base-curve=camera --overwrite --out-type=jpeg --output=%s %s 2>&1",
                        escapeshellarg($jpeg), escapeshellarg($original));
             $output = array();
             exec($command, $output, $result);
@@ -1039,19 +1039,33 @@ EOT;
 
   public function revert($config, $args, $extraArgs) {
     $archiveDB = new ArchiveDB($config);
-    for ($i = 0, $len = count($extraArgs); $i < $len; $i++) {
-      $md5 = $extraArgs[$i];
-      $photo = $archiveDB->getPhotoByMD5($config, $args, $md5);
-      if (!empty($photo)) {
-        $photo = $archiveDB->loadPhoto($config, $photo->pid);
-        $this->createJPEG($config, $photo, $archiveDB, TRUE);
-        $this->createWebJPEG($config, $photo, $archiveDB, TRUE);
-        $archiveDB->updatePhoto($photo);
-        print('Reverted photo ' . $photo->filename . "\n");
+    if (count($extraArgs) > 0) {
+      for ($i = 0, $len = count($extraArgs); $i < $len; $i++) {
+        $md5 = $extraArgs[$i];
+        $photo = $archiveDB->getPhotoByMD5($config, $args, $md5);
+        if (!empty($photo)) {
+          $this->_revertPhoto($config, $photo, $archiveDB);
+        }
+        else {
+          print("Could not find photo associated with md5 ${md5}\n");
+        }
       }
-      else {
-        print("Could not find photo associated with md5 ${md5}\n");
+    }
+    else {
+      $photos = $archiveDB->getPhotos($config, $args);
+      while ($photo = $photos->fetchObject()) {
+        $this->_revertPhoto($config, $photo, $archiveDB);
       }
+    }
+  }
+
+  private function _revertPhoto($config, $photo, $archiveDB) {
+    if (!empty($photo)) {
+      $photo = $archiveDB->loadPhoto($config, $photo->pid);
+      $this->createJPEG($config, $photo, $archiveDB, TRUE);
+      $this->createWebJPEG($config, $photo, $archiveDB, TRUE);
+      $archiveDB->updatePhoto($photo);
+      print('Reverted photo ' . $photo->filename . "\n");
     }
   }
 
