@@ -44,6 +44,8 @@ Commands:
 
   revert - Reverts the image.  This regenerates the derivative images from the original.
 
+  refresh - Refreshes the database checksums based on the photo files.  This is helpful when processing images on the road and then importing those modified images into a more permanent repository without having to re-edit them.
+
 OPTIONS:
 
   -v - Turn on verbose mode
@@ -545,6 +547,10 @@ EOT;
 
       case 'revert':
         $this->revert($conf, $args, $extraArgs);
+        break;
+
+      case 'refresh':
+        $this->refresh($conf, $args, $extraArgs);
         break;
 
       default:
@@ -1066,6 +1072,47 @@ EOT;
       $this->createWebJPEG($config, $photo, $archiveDB, TRUE);
       $archiveDB->updatePhoto($photo);
       print('Reverted photo ' . $photo->filename . "\n");
+    }
+  }
+
+  public function refresh($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    $photos = $archiveDB->getPhotos($config, $args);
+    while ($photo = $photos->fetchObject()) {
+      $this->_refreshPhoto($config, $photo, $archiveDB);
+    }
+  }
+
+  private function _refreshPhoto($config, $photo, $archiveDB) {
+    if (!empty($photo)) {
+      $photo = $archiveDB->loadPhoto($config, $photo->pid);
+      $changed = FALSE;
+
+      $md5 = md5_file($photo->original_filename);
+      if ($md5 !== $photo->md5) {
+	$photo->md5 = $md5;
+	$changed = TRUE;
+      }
+
+      $jpeg_md5 = md5_file($photo->jpeg_filename);
+      if ($jpeg_md5 !== $photo->jpeg_md5) {
+	$photo->jpeg_md5 = $jpeg_md5;
+	$changed = TRUE;
+      }
+
+      $web_md5 = md5_file($photo->share_filename);
+      if ($web_md5 !== $photo->web_md5) {
+	$photo->web_md5 = $web_md5;
+	$changed = TRUE;
+      }
+
+      if ($changed) {
+	$archiveDB->updatePhoto($photo);
+	printf("Refreshed photo %s\n", $photo->filename);
+      }
+      else {
+	printf("Skipped photo %s\n", $photo->filename);
+      }
     }
   }
 
