@@ -35,6 +35,7 @@ Commands:
   fetch - Fetches specified photos.  By default the sharable size photo is fetched.
          --full-size - Fetch the full size JPEG image instead.
          --original-size - Fetch the original image instead.
+	 --rename - Rename each file to be unique.  This is good for checking out a lot of pictures at once.
 
   fetch-movies - Fetches specified movies.
 
@@ -482,6 +483,11 @@ EOT;
           ++$i;
           break;
 
+        case '--rename':
+	  $args->rename = TRUE;
+	  ++$i;
+	  break;
+
         default:
           while ($i < $argc) {
             $extraArgs[] = $argv[$i++];
@@ -772,6 +778,16 @@ EOT;
       else {
         $this->setPhotoTimestamp($to);
         print("Copied ${from} to ${to}.\n");
+
+	if (TRUE === $args->rename) {
+	  // Rename the file to be unique.
+	  $rename_command = sprintf('exiv2 rename -F %s', escapeshellarg($to));
+	  $output = array();
+	  exec($rename_command, $output, $rename_result);
+	  if (0 !== $rename_result) {
+	    printf("Failed to rename %s\n", $to);
+	  }
+	}
       }
       $count++;
     }
