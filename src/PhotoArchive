@@ -36,6 +36,7 @@ Commands:
          --full-size - Fetch the full size JPEG image instead.
          --original-size - Fetch the original image instead.
 	 --rename - Rename each file to be unique.  This is good for checking out a lot of pictures at once.
+         --tree - Create a tree of directories to store the fetched images.  The directories represent the date of each photo.
 
   fetch-movies - Fetches specified movies.
 
@@ -429,6 +430,8 @@ EOT;
     // Parse all flags
     $config = new Config();
     $args = new StdClass();
+    $args->rename = FALSE;
+    $args->tree = FALSE;
     $done = FALSE;
     $extraArgs = array();
     for ($i = 2; $i < $argc && !$done; $i++) {
@@ -485,6 +488,11 @@ EOT;
 
         case '--rename':
 	  $args->rename = TRUE;
+	  ++$i;
+	  break;
+
+        case '--tree':
+	  $args->tree = TRUE;
 	  ++$i;
 	  break;
 
@@ -772,6 +780,19 @@ EOT;
     while ($photo = $photos->fetchObject()) {
       $from = $this->getPhotoFilename($config, $args, $photo);
       $to = $dest . "/" . basename($from);
+      if (TRUE === $args->tree) {
+	$to_dir = sprintf('%s%s', $dest, dirname($photo->filename));
+	$to = sprintf('%s/%s', $to_dir, basename($from));
+	if (!file_exists($to_dir)) {
+	  $mkdir_out = array();
+	  exec(sprintf('mkdir -p %s', $to_dir), $mkdir_out, $mkdir_result);
+	  if ($mkdir_result !== 0) {
+	    print_r($mkdir_out);
+	    break;
+	  }
+	}
+      }
+
       if (!@copy($from, $to)) {
         print("Failed to copy ${from} to ${to}.\n");
       }
