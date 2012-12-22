@@ -478,22 +478,18 @@ EOT;
 
         case '--full-size':
           $args->photo_size = 'full';
-          ++$i;
           break;
 
         case '--original-size':
           $args->photo_size = 'original';
-          ++$i;
           break;
 
         case '--rename':
 	  $args->rename = TRUE;
-	  ++$i;
 	  break;
 
         case '--tree':
 	  $args->tree = TRUE;
-	  ++$i;
 	  break;
 
         default:
