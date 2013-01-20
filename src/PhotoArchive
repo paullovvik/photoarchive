@@ -42,7 +42,10 @@ Commands:
 
   remove - Removes specified photos from the archive.  They will be removed from the database and the photos will be removed.
 
-  edit <md5sum> - Edits the image that correpsonds to the specified md5 sum.  All lower level images are regenerated from the modified image.  Note that the original image is never modified as a result.  Editing the original raw image will allow you to adjust the white balance and exposure and save those changes to the full size jpeg without actually changing the original image in the archive.
+  edit <files> - Edits the images corresponding to the specified files.  The image variant can be specified with one of the following:
+          --full-size - The full size JPEG
+          --original-size - The original image
+  All lower level images are regenerated from the modified image.  Note that the original image is never modified as a result.  Editing the original raw image will allow you to adjust the white balance and exposure and save those changes to the full size jpeg without actually changing the original image in the archive.
 
   revert - Reverts the image.  This regenerates the derivative images from the original.
 
@@ -971,28 +974,41 @@ EOT;
   public function edit($config, $args, $extraArgs) {
     $archiveDB = new ArchiveDB($config);
     for ($i = 0, $len = count($extraArgs); $i < $len; $i++) {
-      $md5 = $extraArgs[$i];
+      $filename = $extraArgs[$i];
+      $md5 = md5_file($filename);
+      if (FALSE === $md5) {
+	print("Could not find photo for file ${filename}.\n");
+	continue;
+      }
       $photo = $archiveDB->getPhotoByMD5($config, $args, $md5);
-      if (!empty($photo) && $md5 == $photo->md5) {
-        // Modifying the original.  Never actually save over the original.
-        $src = $this->getFilename($config, $photo, 'original');
-        $dst = $this->getFilename($config, $photo, 'full');
+      if (empty($photo)) {
+        print("Could not find photo with md5 of ${md5}.\n");
+	continue;
       }
-      if (!empty($photo) && $md5 == $photo->jpeg_md5) {
-        // Modifying the full size jpeg.
-        $src = $this->getFilename($config, $photo, 'full');
-        $dst = $this->getFilename($config, $photo, 'full');
+
+      if (empty($args->photo_size)) {
+	$args['photo_size'] = '';
       }
-      if (!empty($photo) && $md5 == $photo->web_md5) {
-        // Modifying the sharable size.
-        $src = $this->getFilename($config, $photo, 'web');
-        $dst = $this->getFilename($config, $photo, 'web');
+      switch ($args->photo_size) {
+        case 'original':
+          // Never actually save over the original.
+          $src = $this->getFilename($config, $photo, 'original');
+          $dst = $this->getFilename($config, $photo, 'full');
+	  break;
+
+        case 'full':
+	  // Modifying the full size jpeg.
+	  $src = $this->getFilename($config, $photo, 'full');
+	  $dst = $this->getFilename($config, $photo, 'full');
+          break;
+
+        default:
+	  // Modifying the sharable size.
+	  $src = $this->getFilename($config, $photo, 'web');
+	  $dst = $this->getFilename($config, $photo, 'web');
       }
       if (!empty($src) && !empty($dst)) {
         $this->editPhoto($config, $archiveDB, $photo, $src, $dst, $md5);
-      }
-      else {
-        print("Could not find photo with md5 of ${md5}.\n");
       }
     }
   }
