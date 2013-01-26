@@ -161,7 +161,7 @@ EOT;
       if (!copy($photo->filename, $filename)) {
         throw new Exception("Failed to copy " . $photo->filename . " to ${filename}");
       }
-      $this->setPhotoTimestamp($filename);
+      $this->setPhotoTimestamp($filename, $photo->exposure_time);
     }
 
     $archivedPhoto->md5 = md5_file($filename);
@@ -258,6 +258,18 @@ EOT;
             }
             $command = sprintf("ufraw-batch --compression=99 --wb=camera --exposure=0.0 --base-curve=camera --overwrite --out-type=jpeg --output=%s %s 2>&1",
                        escapeshellarg($jpeg), escapeshellarg($original));
+	    printf("command: %s\n", $command);
+            $output = array();
+            exec($command, $output, $result);
+            if ($result !== 0) {
+              // Something bad happened.
+              throw new Exception("Failed to convert file ${original} to ${jpeg}.  " . implode('; ', $output));
+            }
+            break;
+
+          case 'TIFF':
+          case 'TIF':
+            $command = sprintf('convert %s -quality %s %s ', escapeshellarg($original), escapeshellarg($config->quality), escapeshellarg($jpeg));
             $output = array();
             exec($command, $output, $result);
             if ($result !== 0) {
@@ -272,7 +284,7 @@ EOT;
       }
       $this->setPhotoRating($jpeg, $photo->rating);
       $this->setPhotoTags($jpeg, $photo->tags);
-      $this->setPhotoTimestamp($jpeg);
+      $this->setPhotoTimestamp($jpeg, $photo->exposure_time);
     }
     $photo->jpeg_filename = $jpeg_filename;
     $photo->jpeg_md5 = md5_file($jpeg);
@@ -317,7 +329,7 @@ EOT;
         throw new Exception("Failed to scale image file ${full_filename} to ${web_filename}.  " . implode('; ', $output));
       }
 
-      $this->setPhotoTimestamp($web_filename);
+      $this->setPhotoTimestamp($web_filename, $photo->exposure_time);
     }
     $photo->web_filename = $photo->jpeg_filename;
     $photo->web_md5 = md5_file($web_filename);
@@ -409,16 +421,30 @@ EOT;
     return (strlen($a) - strlen($b));
   }
 
-  private function setPhotoTimestamp($filename) {
-    // Invoke exiv2 to set the timestamp to that of the exif data in the photo.
-    $command = sprintf('exiv2 -T rename %s',
-      escapeshellarg($filename));
-    $output = array();
-    exec($command, $output, $result);
-    if ($result !== 0) {
-      // Something bad happened.
-      throw new Exception("Failed to set the timestamp of file ${filename}.  Command: ${command};  " . implode('; ', $output));
-    }
+  private function setPhotoTimestamp($filename, $timestamp = NULL) {
+    do {
+      $done = TRUE;
+      // Invoke exiv2 to set the timestamp to that of the exif data in the photo.
+      $command = sprintf('exiv2 -T rename %s 2>/dev/null', escapeshellarg($filename));
+      $output = array();
+      exec($command, $output, $result);
+      if ($result !== 0) {
+	// Something bad happened.
+	if (NULL !== $timestamp) {
+	  // Try to set the time in the picture's exif data.
+	  $command = sprintf('exiv2 -M"add Exif.Photo.DateTimeOriginal %s" %s', date('Y:m:d H:i:s', $timestamp), escapeshellarg($filename));
+	  $output = array();
+	  exec($command, $output, $result);
+	  if ($result == 0) {
+	    // Successfully set the date.
+	    $done = FALSE;
+	  }
+	}
+	else {
+	  throw new Exception("Failed to set the timestamp of file ${filename}.  Command: ${command};  " . implode('; ', $output));
+	}
+      }
+    } while (!$done);
   }
 
   public function parseArgs() {
@@ -784,7 +810,7 @@ EOT;
 	$to = sprintf('%s/%s', $to_dir, basename($from));
 	if (!file_exists($to_dir)) {
 	  $mkdir_out = array();
-	  exec(sprintf('mkdir -p %s', $to_dir), $mkdir_out, $mkdir_result);
+	  exec(sprintf('mkdir -p %s', escapeshellarg($to_dir)), $mkdir_out, $mkdir_result);
 	  if ($mkdir_result !== 0) {
 	    print_r($mkdir_out);
 	    break;
@@ -796,7 +822,7 @@ EOT;
         print("Failed to copy ${from} to ${to}.\n");
       }
       else {
-        $this->setPhotoTimestamp($to);
+        $this->setPhotoTimestamp($to, $photo->exposure_time);
         print("Copied ${from} to ${to}.\n");
 
 	if (TRUE === $args->rename) {
@@ -987,7 +1013,7 @@ EOT;
       }
 
       if (empty($args->photo_size)) {
-	$args['photo_size'] = '';
+	$args->photo_size = '';
       }
       switch ($args->photo_size) {
         case 'original':
@@ -1037,7 +1063,7 @@ EOT;
 
     switch($type) {
       case 'NEF':
-        $command = sprintf('ufraw --out-type=jpg --compression=%d --output=%s %s', $compression, $dstFilename, $srcFilename);
+        $command = sprintf('ufraw --out-type=jpg --compression=%d --wb=camera --exposure=0.0 --base-curve=camera --output=%s %s 2>&1', intval($compression), escapeshellarg($dstFilename), escapeshellarg($srcFilename));
         $md5_before = md5_file($dstFilename);
         $output = array();
         exec($command, $output, $result);
@@ -1048,7 +1074,7 @@ EOT;
           print("Image edit of file ${srcFilename} was aborted.\n");
         }
         else {
-          $this->setPhotoTimestamp($dstFilename);
+          $this->setPhotoTimestamp($dstFilename, $photo->exposure_time);
           $photo->jpeg_md5 = $md5_after;
           $this->createWebJPEG($config, $photo, $archiveDB, TRUE);
           $archiveDB->updatePhoto($photo);
@@ -1063,7 +1089,7 @@ EOT;
         $tmp_filename = '/tmp/' . basename($srcFilename);
         copy($srcFilename, $tmp_filename);
 
-        $command = sprintf('gimp --no-splash %s', $tmp_filename);
+        $command = sprintf('gimp --no-splash %s', escapeshellarg($tmp_filename));
         $md5_before = md5_file($tmp_filename);
         $output = array();
         exec($command, $output, $result);
@@ -1075,7 +1101,7 @@ EOT;
         }
         else {
           copy($tmp_filename, $dstFilename);
-          $this->setPhotoTimestamp($dstFilename);
+          $this->setPhotoTimestamp($dstFilename, $photo->exposure_time);
           if ($md5 == $photo->jpeg_md5) {
             // The full size jpeg image was modified.
             $photo->jpeg_md5 = $md5_after;
