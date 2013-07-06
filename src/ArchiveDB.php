@@ -161,7 +161,10 @@ EOT;
       print("Query: ${query}\n");
     }
     $result = $this->db->query($query);
-    return $result->fetchObject();
+    if (!empty($result)) {
+      return $result->fetchObject();
+    }
+    return NULL;
   }
 
   /**
@@ -195,18 +198,18 @@ EOT;
     return $result->fetchObject();
   }
 
-  public function updatePhoto(&$photo) {
+  public function updatePhoto($config, &$photo) {
     // Is the photo already in the archive?
     $this->getPhotoId($photo);
     if (isset($photo->pid)) {
       $update = sprintf("UPDATE Photo SET filename = %s, width = %s, height = %s, md5 = %s, jpeg_filename = %s, jpeg_md5 = %s, web_filename = %s, web_md5 = %s, exposure_time = %s, rating = %s, modified = %s WHERE pid = %s",
-$this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->jpeg_filename), $this->db->quote($photo->jpeg_md5), $this->db->quote($photo->web_filename), $this->db->quote($photo->web_md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating), $this->db->quote($photo->modified ? 1 : 0), $this->db->quote($photo->pid));
+        $this->db->quote($this->normalizeFilename($config, $photo->filename)), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($this->normalizeFilename($config, $photo->jpeg_filename)), $this->db->quote($photo->jpeg_md5), $this->db->quote($this->normalizeFilename($config, $photo->web_filename)), $this->db->quote($photo->web_md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating), $this->db->quote($photo->modified ? 1 : 0), $this->db->quote($photo->pid));
       $this->db->exec($update);
     }
     else {
       // Need a new row.
       $insert = sprintf("INSERT INTO Photo (filename, width, height, md5, jpeg_filename, jpeg_md5, web_filename, web_md5, exposure_time, rating, modified) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($photo->jpeg_filename), $this->db->quote($photo->jpeg_md5), $this->db->quote($photo->web_filename), $this->db->quote($photo->web_md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating), $this->db->quote($photo->modified ? 1 : 0));
+    $this->db->quote($this->normalizeFilename($config, $photo->filename)), $this->db->quote($photo->width), $this->db->quote($photo->height), $this->db->quote($photo->md5), $this->db->quote($this->normalizeFilename($config, $photo->jpeg_filename)), $this->db->quote($photo->jpeg_md5), $this->db->quote($this->normalizeFilename($config, $photo->web_filename)), $this->db->quote($photo->web_md5), $this->db->quote($photo->exposure_time), $this->db->quote($photo->rating), $this->db->quote($photo->modified ? 1 : 0));
       $this->db->exec($insert);
     }
 
@@ -215,18 +218,34 @@ $this->db->quote($photo->filename), $this->db->quote($photo->width), $this->db->
     $this->savePhotoTags($photo);
   }
 
-  public function updateMovie(&$movie) {
+  private function normalizeFilename($config, $path) {
+    if (!strncmp($path, $conf->originalsDirectory, strlen($config->originalsDirectory))) {
+      $path = str_replace($config->originalsDirectory, '', $path);
+    }
+    elseif (!strncmp($path, $config->jpegsDirectory, strlen($config->jpegsDirectory))) {
+      $path = str_replace($conf->jpegsDirectory, '', $path);
+    }
+    elseif (!strncmp($path, $config->shareDirectory, strlen($config->shareDirectory))) {
+      $path = str_replace($config->jpegsDirectory, '', $path);
+    }
+    elseif (!strncmp($path, $conf->movieDirectory, strlen($config->movieDirectory))) {
+      $path = str_replace($config->movieDirectory, '', $path);
+    }
+    return $path;
+  }
+
+  public function updateMovie($config, &$movie) {
     // Is the movie already in the archive?
     $this->getMovieId($movie);
     if (isset($movie->pid)) {
       $update = sprintf("UPDATE Movie SET filename = %s, width = %s, height = %s, md5 = %s, exposure_time = %s, rating = %s WHERE pid = %s",
-$this->db->quote($movie->filename), $this->db->quote($movie->width), $this->db->quote($movie->height), $this->db->quote($movie->md5), $this->db->quote($movie->exposure_time), $this->db->quote($movie->rating), $this->db->quote($movie->pid));
+        $this->db->quote($this->normalizeFilename($config, $movie->filename)), $this->db->quote($movie->width), $this->db->quote($movie->height), $this->db->quote($movie->md5), $this->db->quote($movie->exposure_time), $this->db->quote($movie->rating), $this->db->quote($movie->pid));
       $this->db->exec($update);
     }
     else {
       // Need a new row.
       $insert = sprintf("INSERT INTO Movie (filename, width, height, md5, exposure_time, rating) VALUES (%s, %s, %s, %s, %s, %s)",
-        $this->db->quote($movie->filename), $this->db->quote($movie->width), $this->db->quote($movie->height), $this->db->quote($movie->md5), $this->db->quote($movie->exposure_time), $this->db->quote($movie->rating));
+        $this->db->quote($this->normalizeFilename($config, $movie->filename)), $this->db->quote($movie->width), $this->db->quote($movie->height), $this->db->quote($movie->md5), $this->db->quote($movie->exposure_time), $this->db->quote($movie->rating));
       $this->db->exec($insert);
     }
 
@@ -421,9 +440,9 @@ $this->db->quote($movie->filename), $this->db->quote($movie->width), $this->db->
     if (!isset($photo->pid)) {
       $query = $this->db->query(sprintf("SELECT pid FROM Photo WHERE filename = %s", $this->db->quote($photo->filename)));
       if ($query && $data = $query->fetchObject()) {
-	if (isset($data->pid)) {
-	  $photo->pid = $data->pid;
-	}
+        if (isset($data->pid)) {
+          $photo->pid = $data->pid;
+        }
       }
     }
   }
@@ -432,9 +451,9 @@ $this->db->quote($movie->filename), $this->db->quote($movie->width), $this->db->
     if (!isset($movie->pid)) {
       $query = $this->db->query(sprintf("SELECT pid FROM Movie WHERE filename = %s", $this->db->quote($movie->filename)));
       if ($query && $data = $query->fetchObject()) {
-	if (isset($data->pid)) {
-	  $movie->pid = $data->pid;
-	}
+        if (isset($data->pid)) {
+          $movie->pid = $data->pid;
+        }
       }
     }
   }

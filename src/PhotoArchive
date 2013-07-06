@@ -51,6 +51,8 @@ Commands:
 
   refresh - Refreshes the database checksums based on the photo files.  This is helpful when processing images on the road and then importing those modified images into a more permanent repository without having to re-edit them.
 
+  find-photos - Takes a directory containing photos and prints out directory names containing photos that do not currently exist in the archive.
+
 OPTIONS:
 
   -v - Turn on verbose mode
@@ -167,7 +169,7 @@ EOT;
     $archivedPhoto->md5 = md5_file($filename);
     $this->createJPEG($config, $archivedPhoto, $archiveDB, $overwrite);
     $this->createWebJPEG($config, $archivedPhoto, $archiveDB, $overwrite);
-    $archiveDB->updatePhoto($archivedPhoto);
+    $archiveDB->updatePhoto($config, $archivedPhoto);
   }
 
   /**
@@ -209,7 +211,7 @@ EOT;
     }
 
     $archivedMovie->md5 = md5_file($filename);
-    $archiveDB->updateMovie($archivedMovie);
+    $archiveDB->updateMovie($config, $archivedMovie);
   }
 
   private function createJPEG($config, &$photo, $db, $overwrite = FALSE) {
@@ -256,9 +258,8 @@ EOT;
             if ($config->verbose) {
               print("converting " . $original . " to ${jpeg}\n");
             }
-            $command = sprintf("ufraw-batch --compression=99 --wb=camera --exposure=0.0 --base-curve=camera --overwrite --out-type=jpeg --output=%s %s 2>&1",
+            $command = sprintf("ufraw-batch --compression=90 --wb=camera --exposure=auto --base-curve=camera --overwrite --out-type=jpeg --output=%s %s 2>&1",
                        escapeshellarg($jpeg), escapeshellarg($original));
-	    printf("command: %s\n", $command);
             $output = array();
             exec($command, $output, $result);
             if ($result !== 0) {
@@ -521,6 +522,10 @@ EOT;
 	  $args->tree = TRUE;
 	  break;
 
+        case '--invert':
+	  $args->invert = TRUE;
+	  break;
+
         default:
           while ($i < $argc) {
             $extraArgs[] = $argv[$i++];
@@ -591,6 +596,10 @@ EOT;
       case 'refresh':
         $this->refresh($conf, $args, $extraArgs);
         break;
+
+      case 'find-photos':
+	$this->find_photos($conf, $args, $extraArgs);
+	break;
 
       default:
         $this->help();
@@ -1063,7 +1072,7 @@ EOT;
 
     switch($type) {
       case 'NEF':
-        $command = sprintf('ufraw --out-type=jpg --compression=%d --wb=camera --exposure=0.0 --base-curve=camera --output=%s %s 2>&1', intval($compression), escapeshellarg($dstFilename), escapeshellarg($srcFilename));
+        $command = sprintf('ufraw --out-type=jpg --compression=%d --wb=camera --exposure=auto --base-curve=camera --output=%s %s 2>&1', intval($compression), escapeshellarg($dstFilename), escapeshellarg($srcFilename));
         $md5_before = md5_file($dstFilename);
         $output = array();
         exec($command, $output, $result);
@@ -1077,7 +1086,7 @@ EOT;
           $this->setPhotoTimestamp($dstFilename, $photo->exposure_time);
           $photo->jpeg_md5 = $md5_after;
           $this->createWebJPEG($config, $photo, $archiveDB, TRUE);
-          $archiveDB->updatePhoto($photo);
+          $archiveDB->updatePhoto($config, $photo);
           print("Saved edited image ${dstFilename}.  The new md5sum is ${md5_after}\n");
         }
         break;
@@ -1106,12 +1115,12 @@ EOT;
             // The full size jpeg image was modified.
             $photo->jpeg_md5 = $md5_after;
             $this->createWebJPEG($config, $photo, $archiveDB, TRUE);
-            $archiveDB->updatePhoto($photo);
+            $archiveDB->updatePhoto($config, $photo);
           }
           elseif ($md5 == $photo->web_md5) {
             // The web size jpeg was modified.
             $photo->web_md5 = $md5_after;
-            $archiveDB->updatePhoto($photo);
+            $archiveDB->updatePhoto($config, $photo);
           }
           print("Saved edited image ${dstFilename}.  The new md5sum is ${md5_after}\n");}
         break;
@@ -1145,7 +1154,7 @@ EOT;
       $photo = $archiveDB->loadPhoto($config, $photo->pid);
       $this->createJPEG($config, $photo, $archiveDB, TRUE);
       $this->createWebJPEG($config, $photo, $archiveDB, TRUE);
-      $archiveDB->updatePhoto($photo);
+      $archiveDB->updatePhoto($config, $photo);
       print('Reverted photo ' . $photo->filename . "\n");
     }
   }
@@ -1165,30 +1174,90 @@ EOT;
 
       $md5 = md5_file($photo->original_filename);
       if ($md5 !== $photo->md5) {
-	$photo->md5 = $md5;
-	$changed = TRUE;
+        $photo->md5 = $md5;
+        $changed = TRUE;
       }
 
       $jpeg_md5 = md5_file($photo->jpeg_filename);
       if ($jpeg_md5 !== $photo->jpeg_md5) {
-	$photo->jpeg_md5 = $jpeg_md5;
-	$changed = TRUE;
+        $photo->jpeg_md5 = $jpeg_md5;
+        $changed = TRUE;
       }
 
       $web_md5 = md5_file($photo->share_filename);
       if ($web_md5 !== $photo->web_md5) {
-	$photo->web_md5 = $web_md5;
-	$changed = TRUE;
+        $photo->web_md5 = $web_md5;
+        $changed = TRUE;
       }
 
       if ($changed) {
-	$archiveDB->updatePhoto($photo);
-	printf("Refreshed photo %s\n", $photo->filename);
+        $archiveDB->updatePhoto($config, $photo);
+        printf("Refreshed photo %s\n", $photo->filename);
       }
       else {
-	printf("Skipped photo %s\n", $photo->filename);
+        printf("Skipped photo %s\n", $photo->filename);
       }
     }
+  }
+
+  public function find_photos($config, $args, $extraArgs) {
+    $archiveDB = new ArchiveDB($config);
+    foreach ($extraArgs as $dir) {
+      if (!is_dir($dir)) {
+	printf("%s does not exist.\n", $dir);
+	continue;
+      }
+      $this->findPhotosInDirectory($config, $args, $archiveDB, $dir);
+    }
+  }
+
+  public function findPhotosInDirectory($config, $args, $archiveDB, $dir) {
+    $containsArchivedPhotos = FALSE;
+    if ($dh = opendir($dir)) {
+      $dirs = array();
+      $files = array();
+      while (($file = readdir($dh)) !== FALSE) {
+	if ($file == '.' || $file == '..') {
+	  continue;
+	}
+	$file = $dir.$file;
+	if (is_dir($file)) {
+	  $dirs[] = $file.DIRECTORY_SEPARATOR;
+	}
+	else if (is_file($file) && $this->isPhotoFile($file)) {
+	  $files[] = $file;
+	}
+      }
+      closedir($dh);
+
+      //First recurse through all of the subdirectories.
+      foreach ($dirs as $subdir) {
+	$this->findPhotosInDirectory($config, $args, $archiveDB, $subdir);
+      }
+
+      // Now look in this directory
+      foreach($files as $file) {
+	// Only show the directory if it is not completed.
+	$photo = $archiveDB->getPhotoByMD5($config, $args, md5_file($file));
+	if (!empty($photo)) {
+	  // This directory has photos in the archive.
+	  $containsArchivedPhotos = TRUE;
+	  break;
+	}
+      }
+
+      // Only show the directory if it actually has files in it.
+      if (count($files) > 0) {
+	if ($containsArchivedPhotos xor empty($args->invert)) {
+	  printf("%s\n", $dir);
+	}
+      }
+    }
+  }
+
+  public function isPhotoFile($filename) {
+    $ext = $this->getPhotoType($filename);
+    return(in_array($ext, array('JPG','JPEG','TIF','TIFF','RAW')));
   }
 
   public function main() {
