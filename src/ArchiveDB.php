@@ -219,16 +219,16 @@ EOT;
   }
 
   private function normalizeFilename($config, $path) {
-    if (!strncmp($path, $conf->originalsDirectory, strlen($config->originalsDirectory))) {
+    if (!strncmp($path, $config->originalsDirectory, strlen($config->originalsDirectory))) {
       $path = str_replace($config->originalsDirectory, '', $path);
     }
     elseif (!strncmp($path, $config->jpegsDirectory, strlen($config->jpegsDirectory))) {
-      $path = str_replace($conf->jpegsDirectory, '', $path);
+      $path = str_replace($config->jpegsDirectory, '', $path);
     }
     elseif (!strncmp($path, $config->shareDirectory, strlen($config->shareDirectory))) {
       $path = str_replace($config->jpegsDirectory, '', $path);
     }
-    elseif (!strncmp($path, $conf->movieDirectory, strlen($config->movieDirectory))) {
+    elseif (!strncmp($path, $config->movieDirectory, strlen($config->movieDirectory))) {
       $path = str_replace($config->movieDirectory, '', $path);
     }
     return $path;
